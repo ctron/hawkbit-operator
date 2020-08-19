@@ -42,7 +42,7 @@ On OpenShift you can also build a local instance using S2I:
     name: default
   spec:
     database:
-      mariadb:
+      mysql:
         database: hawkbit
         host: hawkbit-db-mysql
         username: hawkbit

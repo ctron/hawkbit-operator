@@ -4,7 +4,7 @@ metadata:
   name: default
 spec:
   database:
-    mariadb:
+    mysql:
       database: hawkbit
       host: hawkbit-db-mysql
       username: hawkbit
