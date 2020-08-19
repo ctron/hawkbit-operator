@@ -13,6 +13,10 @@ You can also install the operator using [Helm](https://helm.sh/):
 
     helm install hawkbit-operator ./helm/hawkbit-operator
 
+On OpenShift you can also build a local instance using S2I:
+
+    helm install hawkbit-operator ./helm/hawkbit-operator --set s2i.enabled=true
+
 ## Create Hawkbit instance
 
 * Create a new MySQL instance:
@@ -52,3 +56,15 @@ You can also install the operator using [Helm](https://helm.sh/):
         name: hawkbit-rabbit-rabbitmq
         field: rabbitmq-password
   ~~~
+
+* Extract the admin credentials
+
+  The operator will automatically create an initial admin user. The credentials can be extracted
+  using the following commands:
+  
+  ~~~sh
+  kubectl get secret default-admin -o jsonpath='{.data.adminUsername}' | base64 -d
+  kubectl get secret default-admin -o jsonpath='{.data.adminPassword}' | base64 -d | cut -c7-
+  ~~~
+  
+  You can update the secret with your own credentials and the operator will reconcile the deployment.

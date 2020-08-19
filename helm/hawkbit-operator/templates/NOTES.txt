@@ -2,9 +2,23 @@
 Create a new Hawkbit instance:
 
 $ kubectl apply -f - << __EOF__
-apiVersion: iot.eclipse.org/v1alpha1
 kind: Hawkbit
+apiVersion: iot.eclipse.org/v1alpha1
 metadata:
-  name: test
-spec: {}
+  name: default
+spec:
+  database:
+    mariadb:
+      database: hawkbit
+      host: hawkbit-db-mysql
+      username: hawkbit
+      passwordSecret:
+        name: hawkbit-db-mysql
+        field: mysql-password
+  rabbit:
+    host: hawkbit-rabbit-rabbitmq
+    username: hawkbit
+    passwordSecret:
+      name: hawkbit-rabbit-rabbitmq
+      field: rabbitmq-password
 __EOF__
