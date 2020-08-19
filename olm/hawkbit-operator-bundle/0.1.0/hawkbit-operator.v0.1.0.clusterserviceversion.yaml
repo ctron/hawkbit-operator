@@ -113,7 +113,7 @@ spec:
       permissions:
         - rules:
           - apiGroups: [""]
-            resources: ["pods", "services", "services", "configmaps", "secrets", "serviceaccounts"]
+            resources: ["pods", "services", "services", "configmaps", "secrets", "serviceaccounts", "persistentvolumeclaims"]
             verbs: ["create", "update", "delete", "get", "watch", "list"]
           - apiGroups: ["apps"]
             resources: ["deployments", "deployments" ]
