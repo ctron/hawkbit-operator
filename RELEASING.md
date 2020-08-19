@@ -7,7 +7,7 @@
 ## OLM
 
 * Create a new bundle
-* Add bundle to `olm/ditto-operator-bundle/ditto-operator.package.yaml`
+* Add bundle to `olm/hawkbit-operator-bundle/hawkbit-operator.package.yaml`
 * Copy `<version>` directory
   * Update versions
   * Update the `replaces` field
