@@ -3,7 +3,7 @@ kind: ClusterServiceVersion
 metadata:
   annotations:
     capabilities: Basic Install
-    categories: "Streaming & Messaging"
+    categories: "Integration & Delivery"
     certified: "false"
     containerImage: docker.io/ctron/hawkbit-operator:0.1.0
     createdAt: "2020-08-19T18:15:00Z"
