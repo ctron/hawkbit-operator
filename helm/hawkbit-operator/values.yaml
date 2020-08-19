@@ -35,4 +35,4 @@ s2i:
   enabled: false
   git:
     uri: https://github.com/ctron/hawkbit-operator
-    ref: master
+    ref: main
