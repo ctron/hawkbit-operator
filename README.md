@@ -1,6 +1,6 @@
 ## Install the operator
 
-You need to install the operator. Once you have installed the operator, you can create a new Hawkbit instance by
+You need to install the operator. Once you have installed the operator, you can create a new hawkBit instance by
 create a new custom resource of type `Hawkbit`.
 
 ### Using OperatorHub
@@ -17,7 +17,7 @@ On OpenShift you can also build a local instance using S2I:
 
     helm install hawkbit-operator ./helm/hawkbit-operator --set s2i.enabled=true
 
-## Create Hawkbit instance
+## Create a hawkBit instance
 
 * Create a new MySQL instance:
 
@@ -31,7 +31,7 @@ On OpenShift you can also build a local instance using S2I:
   helm install hawkbit-rabbit bitnami/rabbitmq --set podSecurityContext= --set auth.username=hawkbit --set auth.password=hawkbit
   ~~~
  
-* Create a new Hawkbit instance:
+* Create a new hawkBit instance:
 
   Also see: [examples/](examples/)
 

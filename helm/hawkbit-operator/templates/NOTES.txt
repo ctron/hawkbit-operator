@@ -1,5 +1,5 @@
 
-Create a new Hawkbit instance:
+Create a new hawkBit instance:
 
 $ kubectl apply -f - << __EOF__
 kind: Hawkbit
@@ -22,3 +22,8 @@ spec:
       name: hawkbit-rabbit-rabbitmq
       field: rabbitmq-password
 __EOF__
+
+The initial admin credentials can be extracted by executing:
+
+  kubectl get secret default-admin -o jsonpath='{.data.adminUsername}' | base64 -d
+  kubectl get secret default-admin -o jsonpath='{.data.adminPassword}' | base64 -d | cut -c7-
