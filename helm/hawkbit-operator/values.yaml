@@ -1,0 +1,38 @@
+replicaCount: 1
+
+image:
+  repository: docker.io/ctron/hawkbit-operator
+  # tag: # defaults to the app version
+  pullPolicy: IfNotPresent
+
+openshift:
+  enabled: false
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name:
+
+podSecurityContext: {}
+
+securityContext: {}
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+rbac:
+  enabled: true
+
+s2i:
+  enabled: false
+  git:
+    uri: https://github.com/ctron/hawkbit-operator
+    ref: master

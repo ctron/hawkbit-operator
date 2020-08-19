@@ -1,0 +1,120 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  lint-chart:
+    runs-on: ubuntu-18.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Fetch history for chart testing
+        run: git fetch --prune --unshallow
+      - name: Run chart-testing (lint)
+        uses: helm/chart-testing-action@v1.0.0-rc.2
+        with:
+          command: lint
+          config: .github/ct.yaml
+
+  build:
+    name: build
+    runs-on: ubuntu-18.04
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+      - name: Store artifact
+        uses: actions/upload-artifact@v1
+        with:
+          name: binary
+          path: target/release/ditto-operator
+
+      - run: ls target/release/
+
+      - name: Build container
+        run: |
+          docker build . --file .github/Dockerfile \
+            --tag docker.pkg.github.com/${{ github.repository }}/ditto-operator:ci
+
+      - name: Login to github container repository
+        run: docker login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} docker.pkg.github.com
+
+      - name: Push latest to github container repository
+        run: docker push docker.pkg.github.com/${{ github.repository }}/ditto-operator:ci
+
+  install-chart:
+    name: install-chart
+    runs-on: ubuntu-18.04
+    needs:
+      - lint-chart
+      - build
+    strategy:
+      matrix:
+        k8s:
+          # the versions supported by chart-testing are the tags
+          # available for the docker.io/kindest/node image
+          # https://hub.docker.com/r/kindest/node/tags
+          - v1.14.10
+          - v1.15.11
+          - v1.16.9
+          - v1.17.5
+          - v1.18.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Fetch history for chart testing
+        run: git fetch --prune --unshallow
+
+      - name: Create kind ${{ matrix.k8s }} cluster
+        uses: helm/kind-action@v1.0.0-rc.1
+        with:
+          config: .github/kind-config.yaml
+          node_image: kindest/node:${{ matrix.k8s }}
+
+      - name: Pre-create namespace
+        run: kubectl create namespace hawkbit-operator-ci
+
+#      - name: Create image pull secret
+#        run: |
+#          kubectl create secret docker-registry ci \
+#            -n hawkbit-operator-ci \
+#            --docker-server=docker.pkg.github.com \
+#            --docker-username=${{ github.repository_owner }} \
+#            --docker-password=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to github container repository
+        run: docker login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} docker.pkg.github.com
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret generic ci \
+              -n hawkbit-operator-ci \
+              --from-file=.dockerconfigjson=/home/runner/.docker/config.json \
+              --type=kubernetes.io/dockerconfigjson
+
+      - name: Run chart-testing (install)
+        uses: helm/chart-testing-action@v1.0.0-rc.2
+        with:
+          command: install
+          config: .github/ct.yaml

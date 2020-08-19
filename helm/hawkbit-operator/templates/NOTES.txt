@@ -1,0 +1,10 @@
+
+Create a new Hawkbit instance:
+
+$ kubectl apply -f - << __EOF__
+apiVersion: iot.eclipse.org/v1alpha1
+kind: Hawkbit
+metadata:
+  name: test
+spec: {}
+__EOF__

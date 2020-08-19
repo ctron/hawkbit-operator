@@ -1,0 +1,26 @@
+---
+{{- if .Values.rbac.enabled -}}
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "hawkbit-operator.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "hawkbit-operator.name" . }}
+{{ include "hawkbit-operator.labels" . | indent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "services", "configmaps", "secrets", "serviceaccounts"]
+    verbs: ["create", "update", "delete", "get", "watch", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments" ]
+    verbs: ["create", "update", "delete", "get", "watch", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["create", "update", "delete", "get", "watch", "list"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["create", "update", "delete", "get", "watch", "list"]
+  - apiGroups: ["iot.eclipse.org"]
+    resources: ["hawkbits", "hawkbits/status", "hawkbits/finalizers"]
+    verbs: ["create", "update", "delete", "get", "watch", "list"]
+{{- end -}}

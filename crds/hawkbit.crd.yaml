@@ -1,0 +1,85 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hawkbits.iot.eclipse.org
+spec:
+  group: iot.eclipse.org
+  version: v1alpha1
+  scope: Namespaced
+
+  names:
+    plural: hawkbits
+    singular: hawkbit
+    kind: Hawkbit
+
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          description: The current phase of the deployment
+          jsonPath: .status.phase
+        - name: Message
+          type: string
+          description: Status message
+          jsonPath: .status.message
+
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+
+                rabbit:
+                  type: object
+                  properties:
+                    host:
+                      type: string
+                    port:
+                      type: number
+                    username:
+                      type: string
+                    passwordSecret:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        field:
+                          type: string
+
+                database:
+                  type: object
+                  properties:
+                    mariadb:
+                      type: object
+                      properties:
+                        host:
+                          type: string
+                        port:
+                          type: number
+                        database:
+                          type: string
+                        username:
+                          type: string
+                        passwordSecret:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            field:
+                              type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+
