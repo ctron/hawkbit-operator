@@ -316,7 +316,13 @@ spring:
                     // containers
 
                     spec.template.apply_container("server", |container| {
-                        container.image = Some(self.image_name("hawkbit-update-server") + "-mysql");
+                        let over = resource.spec.image_overrides.get("hawkbit-update-server");
+                        let image_name = over
+                            .and_then(|o| o.image.clone())
+                            .unwrap_or_else(|| self.image_name("hawkbit-update-server") + "-mysql");
+
+                        container.image = Some(image_name);
+                        container.image_pull_policy = over.and_then(|o| o.pull_policy.clone());
 
                         container.args = None;
                         container.command = None;

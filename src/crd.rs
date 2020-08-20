@@ -13,6 +13,7 @@
 
 use kube_derive::CustomResource;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 #[kube(
@@ -28,6 +29,14 @@ use serde::{Deserialize, Serialize};
 pub struct HawkbitSpec {
     pub database: Database,
     pub rabbit: Rabbit,
+    pub image_overrides: BTreeMap<String, ImageOverride>,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ImageOverride {
+    pub image: Option<String>,
+    pub pull_policy: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
