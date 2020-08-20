@@ -5,7 +5,7 @@ metadata:
     capabilities: Basic Install
     categories: "Integration & Delivery"
     certified: "false"
-    containerImage: docker.io/ctron/hawkbit-operator:0.1.0
+    containerImage: docker.io/ctron/hawkbit-operator:0.1.1
     createdAt: "2020-08-19T18:15:00Z"
     description: Eclipse Hawkbit provides a firmware update platform.
     repository: https://github.com/ctron/hawkbit-operator
@@ -41,7 +41,7 @@ metadata:
           }
         }
       ]
-  name: hawkbit-operator.v0.1.0
+  name: hawkbit-operator.v0.1.1
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -105,7 +105,7 @@ spec:
                         value: info
                       - name: HAS_OPENSHIFT
                         value: "false"
-                    image: docker.io/ctron/hawkbit-operator:0.1.0
+                    image: docker.io/ctron/hawkbit-operator:0.1.1
                     imagePullPolicy: Always
                     name: hawkbit-operator
                     resources: {}
@@ -153,4 +153,4 @@ spec:
   minKubeVersion: 1.16.0
   provider:
     name: Jens Reimann
-  version: 0.1.0
+  version: 0.1.1
