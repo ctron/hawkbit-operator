@@ -25,6 +25,16 @@ On OpenShift you can also build a local instance using S2I:
   you can choose from the following options:
 
 
+  * Use an embedded database:
+  
+    ~~~yaml
+    spec:
+      database:
+        embedded: {}
+    ~~~
+    
+    NOTE: This uses an embedded instance of H2. This is only intended for testing.
+
   * Create a new PostgreSQL instance:
     
     ~~~
