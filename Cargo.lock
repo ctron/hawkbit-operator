@@ -1146,9 +1146,9 @@ dependencies = [
 
 [[package]]
 name = "operator-framework"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba30f37e7f2b76d505fbb8803b5acbae1186e39c7966e1fec93a7f5c647f1ca1"
+checksum = "19731707bde9259948932b0206385cffb4c401071d6b37853e519fa97afcda4b"
 dependencies = [
  "anyhow",
  "k8s-openapi",

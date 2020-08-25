@@ -1,0 +1,18 @@
+kind: Hawkbit
+apiVersion: iot.eclipse.org/v1alpha1
+metadata:
+  name: default
+spec:
+  database:
+    postgres:
+      url: jdbc:postgres://hawkbit-db-postgresql:5432/hawkbit
+      username: hawkbit
+      passwordSecret:
+        name: hawkbit-db-postgresql
+        field: postgresql-password
+  rabbit:
+    host: hawkbit-rabbit-rabbitmq
+    username: hawkbit
+    passwordSecret:
+      name: hawkbit-rabbit-rabbitmq
+      field: rabbitmq-password

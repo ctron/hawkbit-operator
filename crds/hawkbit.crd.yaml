@@ -66,10 +66,19 @@ spec:
 
                 database:
                   type: object
+
+                  oneOf:
+                    - required: [ "mysql" ]
+                    - required: [ "postgres" ]
+                    - required: [ "embedded" ]
+
                   properties:
+
                     mysql:
                       type: object
                       properties:
+                        url:
+                          type: string
                         host:
                           type: string
                         port:
@@ -85,6 +94,37 @@ spec:
                               type: string
                             field:
                               type: string
+                      oneOf:
+                        - required: [ "url" ]
+                        - required: [ "host", "database" ]
+
+                    postgres:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        host:
+                          type: string
+                        port:
+                          type: integer
+                        database:
+                          type: string
+                        username:
+                          type: string
+                        passwordSecret:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            field:
+                              type: string
+                      oneOf:
+                        - required: [ "url" ]
+                        - required: [ "host", "database" ]
+
+                    embedded:
+                      type: object
+
             status:
               type: object
               properties:
@@ -92,4 +132,3 @@ spec:
                   type: string
                 message:
                   type: string
-

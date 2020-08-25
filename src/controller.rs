@@ -11,9 +11,9 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
-use crate::crd::{Hawkbit, HawkbitStatus};
+use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit};
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentStrategy};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 
@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::fmt::Display;
 
 use operator_framework::install::config::AppendString;
-use operator_framework::install::container::ApplyPort;
+use operator_framework::install::container::{ApplyPort, DropVolume};
 
 use operator_framework::install::container::SetResources;
 use operator_framework::install::container::{ApplyContainer, ApplyVolumeMount};
@@ -32,9 +32,8 @@ use operator_framework::install::container::{ApplyEnvironmentVariable, ApplyVolu
 use operator_framework::install::meta::OwnedBy;
 
 use k8s_openapi::api::core::v1::{
-    ConfigMap, ConfigMapVolumeSource, HTTPGetAction, PersistentVolumeClaim,
-    PersistentVolumeClaimVolumeSource, Probe, Secret, Service, ServiceAccount, ServicePort, Volume,
-    VolumeMount,
+    ConfigMap, ConfigMapVolumeSource, Container, HTTPGetAction, PersistentVolumeClaim,
+    PersistentVolumeClaimVolumeSource, Probe, Secret, Service, ServiceAccount, ServicePort,
 };
 use k8s_openapi::api::rbac::v1::{Role, RoleBinding};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -272,6 +271,50 @@ spring:
         )
         .await?;
 
+        match resource.spec.database.variant()? {
+            DatabaseVariant::Embedded => {
+                create_or_update(
+                    &self.pvcs,
+                    Some(namespace),
+                    format!("{}-embedded-db", resource.name()),
+                    |mut pvc| {
+                        pvc.owned_by_controller(resource)?;
+                        pvc.spec.use_or_create(|spec| {
+                            spec.access_modes = Some(vec!["ReadWriteOnce".into()]);
+                            spec.resources.use_or_create(|resources| {
+                                resources.set_resources::<&str, &str, &str>(
+                                    "storage".into(),
+                                    Some("1Gi"),
+                                    None,
+                                );
+                            });
+                        });
+                        Ok(pvc)
+                    },
+                )
+                .await?;
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn apply_common_jdbc<J>(&self, container: &mut Container, jdbc: &J) -> Result<()>
+    where
+        J: DatabaseOptions,
+    {
+        container.add_env("SPRING_DATASOURCE_URL", jdbc.url()?)?;
+
+        container.add_env("SPRING_DATASOURCE_USERNAME", &jdbc.username)?;
+        container.add_env_from_secret(
+            "SPRING_DATASOURCE_PASSWORD",
+            &jdbc.password_secret.name,
+            &jdbc.password_secret.field,
+        )?;
+
+        // done
+
         Ok(())
     }
 
@@ -317,19 +360,72 @@ spring:
 
                     spec.template.apply_container("server", |container| {
                         let over = resource.spec.image_overrides.get("hawkbit-update-server");
+
+                        let suffix = match &resource.spec.database.variant()? {
+                            DatabaseVariant::MySQL(_) => "-mysql",
+                            _ => "",
+                        };
+
                         let image_name = over
                             .and_then(|o| o.image.clone())
-                            .unwrap_or_else(|| self.image_name("hawkbit-update-server") + "-mysql");
+                            .unwrap_or_else(|| self.image_name("hawkbit-update-server") + suffix);
 
                         container.image = Some(image_name);
                         container.image_pull_policy = over.and_then(|o| o.pull_policy.clone());
 
                         container.args = None;
-                        container.command = None;
+                        container.command = Some(
+                            vec!["java", "-jar", "hawkbit-update-server.jar"]
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        );
                         container.working_dir = None;
 
                         container.env = Some(vec![]);
-                        container.add_env("SPRING_PROFILES_ACTIVE", "mysql")?;
+
+                        match resource.spec.database.variant()? {
+                            DatabaseVariant::MySQL(mysql) => {
+                                container.add_env("SPRING_JPA_DATABASE", "MYSQL")?;
+                                /*
+                                container.add_env(
+                                    "SPRING_DATASOURCE_DRIVERCLASSNAME",
+                                    "com.mysql.jdbc.Driver",
+                                )?;
+                                 */
+                                // FIXME: once we have Spring Boot 2.2 and can drop in JDBC drivers
+                                container.add_env(
+                                    "SPRING_DATASOURCE_DRIVERCLASSNAME",
+                                    "org.mariadb.jdbc.Driver",
+                                )?;
+                                self.apply_common_jdbc(container, mysql)?;
+                            }
+                            DatabaseVariant::PostgreSQL(postgres) => {
+                                container.add_env("SPRING_JPA_DATABASE", "POSTGRESQL")?;
+                                container.add_env(
+                                    "SPRING_DATASOURCE_DRIVERCLASSNAME",
+                                    "org.postgresql.Driver",
+                                )?;
+                                self.apply_common_jdbc(container, postgres)?;
+                            }
+                            DatabaseVariant::Embedded => {
+                                container.add_env("SPRING_JPA_DATABASE", "H2")?;
+                                container.add_env(
+                                    "SPRING_DATASOURCE_DRIVERCLASSNAME",
+                                    "org.h2.Driver",
+                                )?;
+                                container.add_env(
+                                    "SPRING_DATASOURCE_URL",
+                                    "jdbc:h2:/embedded-db/hawkbit",
+                                )?;
+
+                                container.apply_volume_mount_simple(
+                                    "embedded-db",
+                                    "/embedded-db",
+                                    false,
+                                )?;
+                            }
+                        }
 
                         let secret_name = format!("{}-admin", resource.name());
                         container.add_env_from_secret(
@@ -342,30 +438,6 @@ spring:
                             &secret_name,
                             "adminPassword",
                         )?;
-
-                        match &resource.spec.database.mysql {
-                            Some(mariadb) => {
-                                if mariadb.database.is_empty() {
-                                    return Err(anyhow!("Empty database field"));
-                                }
-                                container.add_env(
-                                    "SPRING_DATASOURCE_URL",
-                                    format!(
-                                        "jdbc:mysql://{}:{}/{}",
-                                        mariadb.host, mariadb.port, mariadb.database
-                                    ),
-                                )?;
-                                container
-                                    .add_env("SPRING_DATASOURCE_USERNAME", &mariadb.username)?;
-                                container.add_env_from_secret(
-                                    "SPRING_DATASOURCE_PASSWORD",
-                                    &mariadb.password_secret.name,
-                                    &mariadb.password_secret.field,
-                                )?;
-                                Ok(())
-                            }
-                            None => Err(anyhow!("Missing password secret")),
-                        }?;
 
                         container.add_env("SPRING_RABBITMQ_HOST", &resource.spec.rabbit.host)?;
                         container.add_env(
@@ -459,11 +531,29 @@ spring:
                             Ok(())
                         })?;
 
+                        match resource.spec.database.variant()? {
+                            DatabaseVariant::Embedded => {
+                                pod_spec.apply_volume("embedded-db", |volume| {
+                                    volume.persistent_volume_claim =
+                                        Some(PersistentVolumeClaimVolumeSource {
+                                            claim_name: format!("{}-embedded-db", resource.name()),
+                                            ..Default::default()
+                                        });
+                                    Ok(())
+                                })?;
+                            }
+                            _ => {
+                                pod_spec.drop_volume("embedded-db");
+                            }
+                        }
+
                         Ok(())
                     })?;
 
                     Ok(())
                 })?;
+
+                log::debug!("Deployment: {:#?}", &deployment);
 
                 Ok(deployment)
             },

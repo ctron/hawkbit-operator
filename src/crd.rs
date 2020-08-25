@@ -14,6 +14,7 @@
 use kube_derive::CustomResource;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ops::Deref;
 
 #[derive(CustomResource, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 #[kube(
@@ -43,13 +44,45 @@ pub struct ImageOverride {
 #[serde(default, rename_all = "camelCase")]
 pub struct Database {
     pub mysql: Option<MySQL>,
+    pub postgres: Option<PostgreSQL>,
+    pub embedded: Option<Embedded>,
+}
+
+impl Database {
+    pub fn variant(&self) -> anyhow::Result<DatabaseVariant> {
+        match &self {
+            Database {
+                mysql: Some(mysql),
+                postgres: None,
+                embedded: None,
+            } => Ok(DatabaseVariant::MySQL(&mysql)),
+
+            Database {
+                mysql: None,
+                postgres: Some(postgres),
+                embedded: None,
+            } => Ok(DatabaseVariant::PostgreSQL(&postgres)),
+
+            Database {
+                mysql: None,
+                postgres: None,
+                embedded: Some(_),
+            } => Ok(DatabaseVariant::Embedded),
+
+            Database {
+                mysql: _,
+                postgres: _,
+                embedded: _,
+            } => Err(anyhow::anyhow!("Invalid database configuration")),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Rabbit {
     pub host: String,
-    pub port: u32,
+    pub port: u16,
     pub username: String,
     pub password_secret: PasswordSecretSource,
 }
@@ -65,26 +98,99 @@ impl Default for Rabbit {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
-pub struct MySQL {
+pub struct CommonJdbc {
     pub host: String,
-    pub port: u32,
+    pub port: u16,
     pub database: String,
+    pub url: String,
+
     pub username: String,
     pub password_secret: PasswordSecretSource,
 }
 
-impl Default for MySQL {
-    fn default() -> Self {
-        MySQL {
-            host: Default::default(),
-            port: 3306,
-            database: Default::default(),
-            username: Default::default(),
-            password_secret: Default::default(),
-        }
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MySQL {
+    #[serde(flatten)]
+    pub jdbc: CommonJdbc,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PostgreSQL {
+    #[serde(flatten)]
+    pub jdbc: CommonJdbc,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Embedded {}
+
+pub trait DatabaseOptions: Deref<Target = CommonJdbc> {
+    fn jdbc_type(&self) -> String;
+
+    fn default_port(&self) -> u16;
+
+    fn url(&self) -> anyhow::Result<String> {
+        Ok(if !self.url.is_empty() {
+            self.url.clone()
+        } else {
+            let port = if self.port > 0 {
+                self.port
+            } else {
+                self.default_port()
+            };
+            format!(
+                "jdbc:{}://{}:{}/{}",
+                self.jdbc_type(),
+                self.host,
+                port,
+                self.database
+            )
+        })
     }
+}
+
+impl DatabaseOptions for MySQL {
+    fn jdbc_type(&self) -> String {
+        "mysql".to_string()
+    }
+    fn default_port(&self) -> u16 {
+        3306
+    }
+}
+
+impl Deref for MySQL {
+    type Target = CommonJdbc;
+
+    fn deref(&self) -> &Self::Target {
+        &self.jdbc
+    }
+}
+
+impl DatabaseOptions for PostgreSQL {
+    fn jdbc_type(&self) -> String {
+        "postgresql".to_string()
+    }
+    fn default_port(&self) -> u16 {
+        5432
+    }
+}
+
+impl Deref for PostgreSQL {
+    type Target = CommonJdbc;
+
+    fn deref(&self) -> &Self::Target {
+        &self.jdbc
+    }
+}
+
+pub enum DatabaseVariant<'a> {
+    MySQL(&'a MySQL),
+    PostgreSQL(&'a PostgreSQL),
+    Embedded,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]

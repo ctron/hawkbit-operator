@@ -19,14 +19,26 @@ On OpenShift you can also build a local instance using S2I:
 
 ## Create a hawkBit instance
 
-* Create a new MySQL instance:
+* Create a new database instance
 
-  ~~~
-  helm install hawkbit-db bitnami/mysql --set master.securityContext.enabled=false --set db.name=hawkbit --set db.user=hawkbit --set db.password=hawkbit --set replication.enabled=false
-  ~~~
+  hawkBit requires a database to run. You can provide an existing database instance. Or
+  you can choose from the following options:
+
+
+  * Create a new PostgreSQL instance:
+    
+    ~~~
+    helm install hawkbit-db bitnami/postgresql --set securityContext.enabled=false --set postgresqlDatabase=hawkbit --set postgresqlUsername=hawkbit --set postgresqlPassword=hawkbit
+    ~~~
+
+  * Create a new MySQL instance:
+
+    ~~~
+    helm install hawkbit-db bitnami/mysql --set master.securityContext.enabled=false --set db.name=hawkbit --set db.user=hawkbit --set db.password=hawkbit --set replication.enabled=false
+    ~~~
 
 * Create a new RabbitMQ instance:
-
+  
   ~~~
   helm install hawkbit-rabbit bitnami/rabbitmq --set podSecurityContext= --set auth.username=hawkbit --set auth.password=hawkbit
   ~~~
