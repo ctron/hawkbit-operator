@@ -20,15 +20,7 @@ metadata:
           },
           "spec": {
             "database": {
-              "mysql": {
-                "database": "hawkbit",
-                "host": "hawkbit-db-mysql",
-                "username": "hawkbit",
-                "passwordSecret": {
-                  "name": "hawkbit-db-mysql",
-                  "field": "mysql-password"
-                }
-              }
+              "embedded": {}
             },
             "rabbit": {
               "host": "hawkbit-rabbit-rabbitmq",
