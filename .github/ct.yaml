@@ -8,3 +8,4 @@ chart-repos:
 charts: [ "helm/hawkbit-operator" ] # need to prefix with "helm/"
 namespace: "hawkbit-operator-ci"
 release-label: "app.kubernetes.io/instance" # required because of "namespace"
+target-branch: main
