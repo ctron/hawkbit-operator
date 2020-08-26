@@ -19,13 +19,14 @@ On OpenShift you can also build a local instance using S2I:
 
 ## Create a hawkBit instance
 
-* Create a new database instance
+* Have an existing database instance, or choose the embedded one
 
-  hawkBit requires a database to run. You can provide an existing database instance. Or
+  hawkBit requires a database to run. You can provide an existing database instance, or
   you can choose from the following options:
 
-
   * Use an embedded database:
+  
+    This can be achieved by using the following `database` configuration in the `Hawkbit` resource:
   
     ~~~yaml
     spec:
@@ -37,14 +38,44 @@ On OpenShift you can also build a local instance using S2I:
 
   * Create a new PostgreSQL instance:
     
+    NOTE: This currently requires a manually provide hawkBit image.
+    
     ~~~
     helm install hawkbit-db bitnami/postgresql --set securityContext.enabled=false --set postgresqlDatabase=hawkbit --set postgresqlUsername=hawkbit --set postgresqlPassword=hawkbit
+    ~~~
+    
+    And use the following `database` configuration in the `Hawkbit` resource:
+    
+    ~~~yaml
+    spec:
+      database:
+        postgres:
+          database: hawkbit
+          host: hawkbit-db-postgresql
+          username: hawkbit
+          passwordSecret:
+            name: hawkbit-db-postgresql
+            field: postgresql-password
     ~~~
 
   * Create a new MySQL instance:
 
     ~~~
     helm install hawkbit-db bitnami/mysql --set master.securityContext.enabled=false --set db.name=hawkbit --set db.user=hawkbit --set db.password=hawkbit --set replication.enabled=false
+    ~~~
+    
+    And use the following `database` configuration in the `Hawkbit` resource:
+    
+    ~~~yaml
+    spec:
+      database:
+        mysql:
+          database: hawkbit
+          host: hawkbit-db-mysql
+          username: hawkbit
+          passwordSecret:
+            name: hawkbit-db-mysql
+            field: mysql-password
     ~~~
 
 * Create a new RabbitMQ instance:
@@ -64,13 +95,7 @@ On OpenShift you can also build a local instance using S2I:
     name: default
   spec:
     database:
-      mysql:
-        database: hawkbit
-        host: hawkbit-db-mysql
-        username: hawkbit
-        passwordSecret:
-          name: hawkbit-db-mysql
-          field: mysql-password
+      embedded: {}
     rabbit:
       host: hawkbit-rabbit-rabbitmq
       username: hawkbit
