@@ -23,12 +23,7 @@ metadata:
               "embedded": {}
             },
             "rabbit": {
-              "host": "hawkbit-rabbit-rabbitmq",
-              "username": "hawkbit",
-              "passwordSecret": {
-                "name": "hawkbit-rabbit-rabbitmq",
-                "field": "rabbitmq-password"
-              }
+              "managed": {}
             }
           }
         }
@@ -48,9 +43,6 @@ spec:
     The Hawkbit Operator creates and maintains an Eclipse hawkBit™ instance.
 
     [Eclipse hawkBit](https://eclipse.org/hawkbit) is a firmware update platform.
-
-    ### Pre-requisites
-    * An instance of RabbitMQ
 
     ### Supported Features
     * **Installation** | Deploy an instance of Eclipse hawkBit.

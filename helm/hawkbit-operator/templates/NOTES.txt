@@ -8,19 +8,9 @@ metadata:
   name: default
 spec:
   database:
-    mariadb:
-      database: hawkbit
-      host: hawkbit-db-mysql
-      username: hawkbit
-      passwordSecret:
-        name: hawkbit-db-mysql
-        field: mysql-password
+    embedded: {}
   rabbit:
-    host: hawkbit-rabbit-rabbitmq
-    username: hawkbit
-    passwordSecret:
-      name: hawkbit-rabbit-rabbitmq
-      field: rabbitmq-password
+    managed: {}
 __EOF__
 
 The initial admin credentials can be extracted by executing:

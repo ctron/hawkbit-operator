@@ -78,15 +78,41 @@ On OpenShift you can also build a local instance using S2I:
             field: mysql-password
     ~~~
 
-* Create a new RabbitMQ instance:
-  
-  ~~~
-  helm install hawkbit-rabbit bitnami/rabbitmq --set podSecurityContext= --set auth.username=hawkbit --set auth.password=hawkbit
-  ~~~
- 
+* Have an existing broker instance, or choose the managed one
+
+  Eclipse hawkBit requires a RabbitMQ broker. You can use an existing instance or let the
+  operator manage one for you.
+
+    * Let the operator manage an instance:
+    
+      ~~~yaml
+      spec:
+        rabbit:
+          managed: {}
+      ~~~
+    
+    * Or create a new RabbitMQ instance:
+      
+      ~~~
+      helm install hawkbit-rabbit bitnami/rabbitmq --set podSecurityContext= --set auth.username=hawkbit --set auth.password=hawkbit
+      ~~~
+      
+      And use the following configuration:
+      
+      ~~~yaml
+      spec:
+        rabbit:
+          external:
+            host: hawkbit-rabbit-rabbitmq
+            username: hawkbit
+            passwordSecret:
+              name: hawkbit-rabbit-rabbitmq
+              field: rabbitmq-password
+      ~~~
+     
 * Create a new hawkBit instance:
 
-  Also see: [examples/](examples/)
+  Also see the snippets above or the other examples: [examples/](examples/).
 
   ~~~yaml
   kind: Hawkbit
@@ -97,11 +123,7 @@ On OpenShift you can also build a local instance using S2I:
     database:
       embedded: {}
     rabbit:
-      host: hawkbit-rabbit-rabbitmq
-      username: hawkbit
-      passwordSecret:
-        name: hawkbit-rabbit-rabbitmq
-        field: rabbitmq-password
+      managed: {}
   ~~~
 
 * Extract the admin credentials
