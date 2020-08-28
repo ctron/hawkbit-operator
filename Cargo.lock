@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "hawkbit-operator"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "async-std",
@@ -1140,7 +1140,9 @@ dependencies = [
 
 [[package]]
 name = "operator-framework"
-version = "0.3.3"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea74bfddbb5d961e5d58f0a6b80a7a7a50203c2d8625d200c5eb0c5a0dd69de7"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -11,8 +11,9 @@ spec:
         name: hawkbit-db-postgresql
         field: postgresql-password
   rabbit:
-    host: hawkbit-rabbit-rabbitmq
-    username: hawkbit
-    passwordSecret:
-      name: hawkbit-rabbit-rabbitmq
-      field: rabbitmq-password
+    external:
+      host: hawkbit-rabbit-rabbitmq
+      username: hawkbit
+      passwordSecret:
+        name: hawkbit-rabbit-rabbitmq
+        field: rabbitmq-password

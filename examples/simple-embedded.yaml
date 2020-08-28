@@ -5,3 +5,5 @@ metadata:
 spec:
   database:
     embedded: {}
+  rabbit:
+    managed: {}

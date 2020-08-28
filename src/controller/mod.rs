@@ -22,7 +22,7 @@ use k8s_openapi::api::apps::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 
 use kube::api::{DeleteParams, Meta, ObjectMeta, PostParams};
-use kube::{Api, Client, Error};
+use kube::{Api, Client};
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
