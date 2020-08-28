@@ -15,7 +15,7 @@ mod rabbit;
 
 use anyhow::Result;
 
-use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit, RabbitManaged};
+use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit};
 use k8s_openapi::api::apps::v1::{
     Deployment, DeploymentStrategy, StatefulSet, StatefulSetUpdateStrategy,
 };
@@ -51,7 +51,6 @@ use operator_framework::utils::UseOrCreate;
 
 use anyhow::anyhow;
 
-use futures::future::Either;
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use kube::api::PropagationPolicy::Background;
 use operator_framework::install::DeleteOptionally;
@@ -162,10 +161,7 @@ impl HawkbitController {
         // reconcile rabbitmq embedded
 
         match &resource.spec.rabbit.managed {
-            Some(rabbit) => {
-                self.deploy_managed_rabbit(&resource, rabbit, &namespace)
-                    .await?
-            }
+            Some(_) => self.deploy_managed_rabbit(&resource).await?,
             _ => self.delete_managed_rabbit(&resource).await?,
         }
 
@@ -191,12 +187,7 @@ impl HawkbitController {
         Ok(resource)
     }
 
-    async fn deploy_managed_rabbit(
-        &self,
-        resource: &Hawkbit,
-        rabbit: &RabbitManaged,
-        namespace: &String,
-    ) -> Result<()> {
+    async fn deploy_managed_rabbit(&self, resource: &Hawkbit) -> Result<()> {
         let base = format!("{}-rabbit", &resource.name());
         let config_tracker = &mut ConfigTracker::new();
 

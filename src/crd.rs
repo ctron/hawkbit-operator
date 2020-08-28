@@ -11,7 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
-use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec, ResourceRequirements};
+use k8s_openapi::api::core::v1::ResourceRequirements;
 use kube_derive::CustomResource;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
     let lp = ListParams::default().timeout(20); // low timeout in this example
     let rf = Reflector::new(dittos).params(lp);
 
-    let inf: Informer<Hawkbit> = Informer::new(Api::namespaced(client.clone(), &namespace));
+    let _: Informer<Hawkbit> = Informer::new(Api::namespaced(client.clone(), &namespace));
 
     let rf2 = rf.clone(); // read from a clone in a task
 
