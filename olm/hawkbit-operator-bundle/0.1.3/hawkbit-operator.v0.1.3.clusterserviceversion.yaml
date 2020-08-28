@@ -105,7 +105,7 @@ spec:
             resources: ["events"]
             verbs: ["create"]
           - apiGroups: ["apps"]
-            resources: ["deployments", "deployments" ]
+            resources: ["deployments", "statefulsets" ]
             verbs: ["create", "update", "delete", "get", "watch", "list"]
           - apiGroups: ["rbac.authorization.k8s.io"]
             resources: ["roles", "rolebindings"]
