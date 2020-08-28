@@ -42,5 +42,5 @@ string-error = "0.1.0"
 #k8s-openapi = { git = "https://github.com/Arnavion/k8s-openapi.git#b8046d9a" }
 #kube = { git = "https://github.com/clux/kube-rs", branch="master" }
 #kube-derive = { git = "https://github.com/clux/kube-rs", branch="master" }
-#operator-framework = { path = "/home/jreimann/git/operator-framework" }
+operator-framework = { path = "/home/jreimann/git/operator-framework" }
 

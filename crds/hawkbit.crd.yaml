@@ -49,20 +49,35 @@ spec:
 
                 rabbit:
                   type: object
+                  oneOf:
+                    - required: [ "external" ]
+                    - required: [ "managed" ]
                   properties:
-                    host:
-                      type: string
-                    port:
-                      type: integer
-                    username:
-                      type: string
-                    passwordSecret:
+                    external:
+                      type: object
+                      required: [ "host" ]
+                      properties:
+                        host:
+                          type: string
+                        port:
+                          type: integer
+                        username:
+                          type: string
+                        passwordSecret:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            field:
+                              type: string
+
+                    managed:
                       type: object
                       properties:
-                        name:
+                        storageSize:
                           type: string
-                        field:
-                          type: string
+                        resources:
+                          type: object
 
                 database:
                   type: object

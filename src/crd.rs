@@ -11,6 +11,7 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
+use k8s_openapi::api::core::v1::{Container, PodSpec, PodTemplateSpec, ResourceRequirements};
 use kube_derive::CustomResource;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -78,18 +79,32 @@ impl Database {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Rabbit {
+    pub external: Option<RabbitExternal>,
+    pub managed: Option<RabbitManaged>,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RabbitManaged {
+    pub storage_size: Option<String>,
+    pub resources: Option<ResourceRequirements>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RabbitExternal {
     pub host: String,
     pub port: u16,
     pub username: String,
     pub password_secret: PasswordSecretSource,
 }
 
-impl Default for Rabbit {
+impl Default for RabbitExternal {
     fn default() -> Self {
-        Rabbit {
+        RabbitExternal {
             host: Default::default(),
             port: 5672,
             username: Default::default(),

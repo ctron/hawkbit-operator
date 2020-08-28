@@ -11,20 +11,24 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
+mod rabbit;
+
 use anyhow::Result;
 
-use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit};
-use k8s_openapi::api::apps::v1::{Deployment, DeploymentStrategy};
+use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit, RabbitManaged};
+use k8s_openapi::api::apps::v1::{
+    Deployment, DeploymentStrategy, StatefulSet, StatefulSetUpdateStrategy,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 
-use kube::api::{Meta, ObjectMeta, PostParams};
-use kube::{Api, Client};
+use kube::api::{DeleteParams, Meta, ObjectMeta, PostParams};
+use kube::{Api, Client, Error};
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
 
 use operator_framework::install::config::AppendString;
-use operator_framework::install::container::{ApplyPort, DropVolume};
+use operator_framework::install::container::{ApplyPort, DropVolume, DropVolumeMount};
 
 use operator_framework::install::container::SetResources;
 use operator_framework::install::container::{ApplyContainer, ApplyVolumeMount};
@@ -32,10 +36,11 @@ use operator_framework::install::container::{ApplyEnvironmentVariable, ApplyVolu
 use operator_framework::install::meta::OwnedBy;
 
 use k8s_openapi::api::core::v1::{
-    ConfigMap, ConfigMapVolumeSource, Container, HTTPGetAction, PersistentVolumeClaim,
-    PersistentVolumeClaimVolumeSource, Probe, Secret, Service, ServiceAccount, ServicePort,
+    ConfigMap, ConfigMapVolumeSource, Container, EmptyDirVolumeSource, ExecAction, HTTPGetAction,
+    PersistentVolumeClaim, PersistentVolumeClaimSpec, PersistentVolumeClaimVolumeSource, Probe,
+    ResourceRequirements, Secret, Service, ServiceAccount, ServicePort,
 };
-use k8s_openapi::api::rbac::v1::{Role, RoleBinding};
+use k8s_openapi::api::rbac::v1::{PolicyRule, Role, RoleBinding, RoleRef, Subject};
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 
 use openshift_openapi::api::route::v1::{Route, RoutePort, TLSConfig};
@@ -44,11 +49,19 @@ use operator_framework::process::create_or_update;
 use operator_framework::tracker::{ConfigTracker, Trackable};
 use operator_framework::utils::UseOrCreate;
 
+use anyhow::anyhow;
+
+use futures::future::Either;
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use kube::api::PropagationPolicy::Background;
+use operator_framework::install::DeleteOptionally;
 use passwords::PasswordGenerator;
+use std::iter::FromIterator;
 
 pub struct HawkbitController {
     client: Client,
     deployments: Api<Deployment>,
+    statefulsets: Api<StatefulSet>,
     secrets: Api<Secret>,
     configmaps: Api<ConfigMap>,
     service_accounts: Api<ServiceAccount>,
@@ -74,6 +87,7 @@ impl HawkbitController {
         HawkbitController {
             client: client.clone(),
             deployments: Api::namespaced(client.clone(), &namespace),
+            statefulsets: Api::namespaced(client.clone(), &namespace),
             secrets: Api::namespaced(client.clone(), &namespace),
             service_accounts: Api::namespaced(client.clone(), &namespace),
             roles: Api::namespaced(client.clone(), &namespace),
@@ -116,6 +130,7 @@ impl HawkbitController {
                 resource
             }
             Err(err) => {
+                log::info!("Failed to reconcile: {}", err);
                 let mut resource = original.clone();
                 resource.status.use_or_create(|status| {
                     status.phase = "Failed".into();
@@ -144,6 +159,18 @@ impl HawkbitController {
 
         log::info!("Reconcile: {}/{}", namespace, prefix);
 
+        // reconcile rabbitmq embedded
+
+        match &resource.spec.rabbit.managed {
+            Some(rabbit) => {
+                self.deploy_managed_rabbit(&resource, rabbit, &namespace)
+                    .await?
+            }
+            _ => self.delete_managed_rabbit(&resource).await?,
+        }
+
+        // reconcile hawkbit update server
+
         let mut config_tracker = &mut ConfigTracker::new();
 
         self.create_service_account(&resource, &namespace).await?;
@@ -162,6 +189,402 @@ impl HawkbitController {
         }
 
         Ok(resource)
+    }
+
+    async fn deploy_managed_rabbit(
+        &self,
+        resource: &Hawkbit,
+        rabbit: &RabbitManaged,
+        namespace: &String,
+    ) -> Result<()> {
+        let base = format!("{}-rabbit", &resource.name());
+        let config_tracker = &mut ConfigTracker::new();
+
+        let selector = self.selector(&resource, "rabbit", "broker");
+
+        create_or_update(
+            &self.service_accounts,
+            resource.namespace(),
+            &base,
+            |mut sa| {
+                sa.owned_by_controller(resource)?;
+                sa.metadata.labels = Some(selector.clone());
+                Ok(sa)
+            },
+        )
+        .await?;
+
+        create_or_update(&self.roles, resource.namespace(), &base, |mut role| {
+            role.owned_by_controller(resource)?;
+            role.metadata.labels = Some(selector.clone());
+
+            role.rules = Some(vec![
+                PolicyRule {
+                    api_groups: Some(vec!["".into()]),
+                    resources: Some(vec!["endpoints".into()]),
+                    verbs: vec!["get".into(), "list".into(), "watch".into()],
+                    ..Default::default()
+                },
+                PolicyRule {
+                    api_groups: Some(vec!["".into()]),
+                    resources: Some(vec!["events".into()]),
+                    verbs: vec!["create".into()],
+                    ..Default::default()
+                },
+            ]);
+
+            Ok(role)
+        })
+        .await?;
+
+        create_or_update(
+            &self.role_bindings,
+            resource.namespace(),
+            &base,
+            |mut rb| {
+                rb.owned_by_controller(resource)?;
+                rb.metadata.labels = Some(selector.clone());
+
+                rb.subjects = Some(vec![Subject {
+                    kind: "ServiceAccount".into(),
+                    name: base.clone(),
+                    ..Default::default()
+                }]);
+
+                rb.role_ref = RoleRef {
+                    api_group: "rbac.authorization.k8s.io".into(),
+                    kind: "Role".into(),
+                    name: base.clone(),
+                };
+
+                Ok(rb)
+            },
+        )
+        .await?;
+
+        create_or_update(&self.secrets, resource.namespace(), &base, |mut secret| {
+            secret.owned_by_controller(resource)?;
+            secret.metadata.labels = Some(selector.clone());
+
+            secret.init_string_from("erlang.cookie", || "1234");
+            secret.init_string_from("default.username", || "hawkbit");
+            secret.init_string_from("default.password", || "hawkbit");
+            secret.track_with(config_tracker);
+
+            Ok(secret)
+        })
+        .await?;
+
+        create_or_update(&self.configmaps, resource.namespace(), &base, |mut cm| {
+            cm.owned_by_controller(resource)?;
+            cm.metadata.labels = Some(selector.clone());
+
+            cm.append_string(
+                "rabbitmq.conf",
+                format!(
+                    r#"# Rabbit configuration
+
+cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+cluster_formation.k8s.address_type = hostname
+cluster_formation.node_cleanup.interval = 10
+cluster_formation.node_cleanup.only_log_warning = true
+cluster_partition_handling = autoheal
+
+loopback_users.guest = false
+
+queue_master_locator = min-masters
+"#
+                ),
+            );
+
+            cm.append_string(
+                "enabled_plugins",
+                "[rabbitmq_management, rabbitmq_peer_discovery_k8s].",
+            );
+
+            cm.track_with(config_tracker);
+
+            Ok(cm)
+        })
+        .await?;
+
+        create_or_update(
+            &self.statefulsets,
+            resource.namespace(),
+            &base,
+            |mut statefulset| {
+                statefulset.owned_by_controller(resource)?;
+                statefulset.metadata.labels = Some(selector.clone());
+
+                statefulset.spec.use_or_create_err(|mut spec| {
+                    spec.service_name = format!("{}-headless", &base);
+
+                    spec.selector = LabelSelector {
+                        match_labels: Some(selector.clone()),
+                        ..Default::default()
+                    };
+
+                    spec.template.metadata.use_or_create(|meta| {
+                        meta.labels = Some(selector.clone());
+                        meta.annotations.use_or_create(|annotations| {
+                            annotations.insert("config-hash".into(), config_tracker.current_hash());
+                        });
+                    });
+
+                    spec.pod_management_policy = Some("OrderedReady".into());
+                    spec.update_strategy = Some(StatefulSetUpdateStrategy {
+                        type_: Some("RollingUpdate".into()),
+                        ..Default::default()
+                    });
+
+                    spec.template.spec.use_or_create_err(|pod_spec| {
+                        pod_spec.service_account = Some(base.clone());
+                        pod_spec.restart_policy = Some("Always".into());
+
+                        pod_spec.init_containers = None;
+
+                        pod_spec.apply_volume("config", |volume| {
+                            volume.config_map = Some(ConfigMapVolumeSource {
+                                name: Some(base.clone()),
+                                default_mode: Some(420),
+                                ..Default::default()
+                            });
+                            Ok(())
+                        })?;
+                        pod_spec.apply_volume("config-rw", |volume| {
+                            volume.empty_dir = Some(EmptyDirVolumeSource { ..Default::default() });
+                            Ok(())
+                        })?;
+
+                        pod_spec.init_containers.apply_container("init-config", |container|{
+                            container.image = Some("registry.access.redhat.com/ubi8-minimal".into());
+
+                            container.add_env_from_secret(
+                                "RABBITMQ_DEFAULT_USER",
+                                &base,
+                                "default.username",
+                            )?;
+                            container.add_env_from_secret(
+                                "RABBITMQ_DEFAULT_PASSWORD",
+                                &base,
+                                "default.password",
+                            )?;
+
+                            container.apply_volume_mount_simple("config", "/etc/config", false)?;
+                            container.apply_volume_mount_simple("config-rw", "/etc/config-rw", false)?;
+
+                            container.command = Some(vec!["bash", "-c", r#"
+set -e
+
+cp /etc/config/* /etc/config-rw/
+echo "default_user = ${RABBITMQ_DEFAULT_USER}" >> /etc/config-rw/rabbitmq.conf
+echo "default_pass = ${RABBITMQ_DEFAULT_PASSWORD}" >> /etc/config-rw/rabbitmq.conf
+
+"#]
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect()
+                            );
+
+                            Ok(())
+                        })?;
+
+                        pod_spec.containers.apply_container("rabbit", |container| {
+                            container.image = Some("docker.io/library/rabbitmq:3".into());
+
+                            container.drop_volume_mount("config");
+                            container.apply_volume_mount_simple("config-rw", "/etc/rabbitmq", false)?;
+                            container.apply_volume_mount_simple(
+                                "storage",
+                                "/var/lib/rabbitmq/mnesia",
+                                false,
+                            )?;
+
+                            container.env = Some(vec![]);
+                            container.add_env_from_secret(
+                                "RABBITMQ_ERLANG_COOKIE",
+                                &base,
+                                "erlang.cookie",
+                            )?;
+
+                            container.add_env_from_field_path("MY_POD_IP", "status.podIP")?;
+                            container.add_env_from_field_path("MY_POD_NAME", "metadata.name")?;
+                            container.add_env_from_field_path(
+                                "MY_POD_NAMESPACE",
+                                "metadata.namespace",
+                            )?;
+
+                            container.add_env("RABBITMQ_FORCE_BOOT", "false")?;
+                            container.add_env("K8S_SERVICE_NAME", format!("{}-headless", base))?;
+                            container.add_env("K8S_HOSTNAME_SUFFIX", ".$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local")?;
+
+                            container.add_env("RABBITMQ_NODE_NAME", "rabbit@$(MY_POD_NAME).$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local")?;
+                            container.add_env("RABBITMQ_NODENAME", "rabbit@$(MY_POD_NAME).$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local")?;
+                            container.add_env("RABBITMQ_USE_LONGNAME", "true")?;
+
+                            // ports
+
+                            container.add_port("amqp", 5672, Some("TCP".into()))?;
+                            container.add_port("management", 15672, Some("TCP".into()))?;
+                            container.add_port("epmd", 4369, Some("TCP".into()))?;
+                            container.add_port("cluster-links", 25672, Some("TCP".into()))?;
+
+                            // checks
+
+                            container.liveness_probe = Some(Probe {
+                                exec: Some(ExecAction {
+                                    command: Some(vec!["rabbitmq-diagnostics".into(), "status".into()]),
+                                }),
+                                initial_delay_seconds: Some(30),
+                                period_seconds: Some(60),
+                                timeout_seconds: Some(15),
+                                ..Default::default()
+                            });
+                            container.readiness_probe = Some(Probe {
+                                exec: Some(ExecAction {
+                                    command: Some(vec!["rabbitmq-diagnostics".into(), "ping".into()]),
+                                }),
+                                initial_delay_seconds: Some(20),
+                                period_seconds: Some(60),
+                                timeout_seconds: Some(10),
+                                ..Default::default()
+                            });
+
+                            // done
+
+                            Ok(())
+                        })?;
+
+                        Ok(())
+                    })?;
+
+                    spec.volume_claim_templates = Some(vec![PersistentVolumeClaim {
+                        metadata: ObjectMeta {
+                            labels: Some(selector.clone()),
+                            name: Some("storage".into()),
+                            ..Default::default()
+                        },
+                        spec: Some(PersistentVolumeClaimSpec {
+                            access_modes: Some(vec!["ReadWriteOnce".into()]),
+                            resources: Some(ResourceRequirements {
+                                requests: Some(BTreeMap::from_iter(
+                                    vec![("storage".to_string(), Quantity("8Gi".to_string()))]
+                                        .into_iter(),
+                                )),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }]);
+
+                    Ok(())
+                })?;
+
+                Ok(statefulset)
+            },
+        )
+            .await?;
+
+        create_or_update(
+            &self.services,
+            resource.namespace(),
+            format!("{}-headless", base),
+            |mut svc| {
+                svc.owned_by_controller(resource)?;
+                svc.metadata.labels = Some(selector.clone());
+
+                svc.spec.use_or_create_err(|spec| {
+                    spec.selector = Some(selector.clone());
+                    spec.type_ = Some("ClusterIP".into());
+                    spec.cluster_ip = Some("None".into());
+
+                    spec.ports = Some(vec![
+                        ServicePort {
+                            name: Some("amqp".into()),
+                            port: 5672,
+                            protocol: Some("TCP".into()),
+                            target_port: Some(IntOrString::String("amqp".into())),
+                            ..Default::default()
+                        },
+                        ServicePort {
+                            name: Some("epmd".into()),
+                            port: 4369,
+                            protocol: Some("TCP".into()),
+                            target_port: Some(IntOrString::String("epmd".into())),
+                            ..Default::default()
+                        },
+                        ServicePort {
+                            name: Some("cluster-links".into()),
+                            port: 25672,
+                            protocol: Some("TCP".into()),
+                            target_port: Some(IntOrString::String("cluster-links".into())),
+                            ..Default::default()
+                        },
+                    ]);
+
+                    Ok(())
+                })?;
+
+                Ok(svc)
+            },
+        )
+        .await?;
+
+        create_or_update(&self.services, resource.namespace(), base, |mut svc| {
+            svc.owned_by_controller(resource)?;
+            svc.metadata.labels = Some(selector.clone());
+
+            svc.spec.use_or_create_err(|spec| {
+                spec.selector = Some(selector.clone());
+                spec.type_ = Some("ClusterIP".into());
+
+                spec.ports = Some(vec![
+                    ServicePort {
+                        name: Some("amqp".into()),
+                        port: 5672,
+                        protocol: Some("TCP".into()),
+                        target_port: Some(IntOrString::String("amqp".into())),
+                        ..Default::default()
+                    },
+                    ServicePort {
+                        name: Some("management".into()),
+                        port: 15672,
+                        protocol: Some("TCP".into()),
+                        target_port: Some(IntOrString::String("management".into())),
+                        ..Default::default()
+                    },
+                ]);
+
+                Ok(())
+            })?;
+
+            Ok(svc)
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn delete_managed_rabbit(&self, resource: &Hawkbit) -> Result<()> {
+        let base = format!("{}-rabbit", resource.name());
+        let dp = DeleteParams {
+            propagation_policy: Some(Background),
+            ..Default::default()
+        };
+
+        self.service_accounts.delete_optionally(&base, &dp).await?;
+        self.roles.delete_optionally(&base, &dp).await?;
+        self.role_bindings.delete_optionally(&base, &dp).await?;
+        self.configmaps.delete_optionally(&base, &dp).await?;
+        self.secrets.delete_optionally(&base, &dp).await?;
+        self.statefulsets.delete_optionally(&base, &dp).await?;
+        self.services.delete_optionally(&base, &dp).await?;
+        self.services
+            .delete_optionally(&format!("{}-headless", &base), &dp)
+            .await?;
+
+        Ok(())
     }
 
     async fn create_application_config(
@@ -439,18 +862,48 @@ spring:
                             "adminPassword",
                         )?;
 
-                        container.add_env("SPRING_RABBITMQ_HOST", &resource.spec.rabbit.host)?;
-                        container.add_env(
-                            "SPRING_RABBITMQ_PORT",
-                            format!("{}", resource.spec.rabbit.port),
-                        )?;
-                        container
-                            .add_env("SPRING_RABBITMQ_USERNAME", &resource.spec.rabbit.username)?;
-                        container.add_env_from_secret(
-                            "SPRING_RABBITMQ_PASSWORD",
-                            &resource.spec.rabbit.password_secret.name,
-                            &resource.spec.rabbit.password_secret.field,
-                        )?;
+                        match (
+                            &resource.spec.rabbit.external,
+                            &resource.spec.rabbit.managed,
+                        ) {
+                            (Some(external), None) => {
+                                container.add_env("SPRING_RABBITMQ_HOST", &external.host)?;
+                                container.add_env(
+                                    "SPRING_RABBITMQ_PORT",
+                                    format!("{}", external.port),
+                                )?;
+                                container
+                                    .add_env("SPRING_RABBITMQ_USERNAME", &external.username)?;
+                                container.add_env_from_secret(
+                                    "SPRING_RABBITMQ_PASSWORD",
+                                    &external.password_secret.name,
+                                    &external.password_secret.field,
+                                )?;
+
+                                Ok(())
+                            }
+                            (None, Some(_)) => {
+                                let rabbit = format!("{}-rabbit", resource.name());
+                                container.add_env(
+                                    "SPRING_RABBITMQ_HOST",
+                                    format!("{}-rabbit", resource.name()),
+                                )?;
+                                container.add_env("SPRING_RABBITMQ_PORT", "5672")?;
+                                container.add_env_from_secret(
+                                    "SPRING_RABBITMQ_USERNAME",
+                                    &rabbit,
+                                    "default.username",
+                                )?;
+                                container.add_env_from_secret(
+                                    "SPRING_RABBITMQ_PASSWORD",
+                                    &rabbit,
+                                    "default.password",
+                                )?;
+
+                                Ok(())
+                            }
+                            _ => Err(anyhow!("Invalid Rabbit configuration")),
+                        }?;
 
                         container.add_env(
                             "org.eclipse.hawkbit.repository.file.path",
