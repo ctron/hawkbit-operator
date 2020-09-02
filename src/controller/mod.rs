@@ -321,11 +321,14 @@ impl HawkbitController {
                     ..Default::default()
                 };
 
+                // if we don't any credentials ...
                 if user.spec.user.credentials.is_empty() {
+                    // ... create a password
+                    let password = self.passwords.generate_one().map_err(|err| anyhow!(err))?;
                     let cred = Credential {
                         temporary: false,
                         r#type: "password".to_string(),
-                        value: "test12".to_string(), // FIXME: replace with generated password
+                        value: password,
                     };
                     user.spec.user.credentials.push(cred);
                 }
