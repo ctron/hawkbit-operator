@@ -109,10 +109,48 @@ On OpenShift you can also build a local instance using S2I:
               name: hawkbit-rabbit-rabbitmq
               field: rabbitmq-password
       ~~~
-     
+
+* Choose a sign on solution
+
+  * Basic username/password
+  
+    By default, the operator creates static username/password combination for login in to
+    the hawkBit instance.
+  
+    Once the instance is deployed, you can retrieve the information using the following
+    commands:
+    
+    ~~~sh
+    kubectl get secret default-admin -o jsonpath='{.data.adminUsername}' | base64 -d
+    kubectl get secret default-admin -o jsonpath='{.data.adminPassword}' | base64 -d | cut -c7-
+    ~~~
+      
+    You can update the secret with your own credentials, and the operator will reconcile
+    the deployment.
+    
+  * Using OAuth2 with Keycloak
+
+    It is also possible to use Keycloak as a sign-on solution. To enable Keycloak, you need to:
+
+    * Install the Keycloak operator
+    * Use the following configuration:
+    
+      ~~~yaml
+      spec:
+        signOn:
+          keycloak: {}
+      ~~~
+      
+      This will create a new Keycloak instance, realm, client, and initial admin user. You can
+      retrieve the access credentials using the following command once the instance is deployed:
+      
+      ~~~sh
+      kubectl describe keycloakuser default-admin
+      ~~~
+
 * Create a new hawkBit instance:
 
-  Also see the snippets above or the other examples: [examples/](examples/).
+  Also, see the snippets above or the other examples: [examples/](examples/).
 
   ~~~yaml
   kind: Hawkbit
@@ -125,15 +163,3 @@ On OpenShift you can also build a local instance using S2I:
     rabbit:
       managed: {}
   ~~~
-
-* Extract the admin credentials
-
-  The operator will automatically create an initial admin user. The credentials can be extracted
-  using the following commands:
-  
-  ~~~sh
-  kubectl get secret default-admin -o jsonpath='{.data.adminUsername}' | base64 -d
-  kubectl get secret default-admin -o jsonpath='{.data.adminPassword}' | base64 -d | cut -c7-
-  ~~~
-  
-  You can update the secret with your own credentials and the operator will reconcile the deployment.

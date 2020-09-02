@@ -12,6 +12,7 @@
  */
 
 use k8s_openapi::api::core::v1::ResourceRequirements;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 use kube_derive::CustomResource;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -23,6 +24,7 @@ use std::ops::Deref;
     version = "v1alpha1",
     kind = "Hawkbit",
     namespaced,
+    derive = "Default",
     derive = "PartialEq",
     status = "HawkbitStatus"
 )]
@@ -32,6 +34,23 @@ pub struct HawkbitSpec {
     pub database: Database,
     pub rabbit: Rabbit,
     pub image_overrides: BTreeMap<String, ImageOverride>,
+    pub sign_on: Option<SignOn>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SignOn {
+    Keycloak {
+        #[serde(flatten)]
+        config: KeycloakConfig,
+    },
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct KeycloakConfig {
+    pub use_instance: Option<LabelSelector>,
+    pub hawkbit_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]

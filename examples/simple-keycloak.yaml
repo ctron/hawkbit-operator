@@ -1,0 +1,11 @@
+kind: Hawkbit
+apiVersion: iot.eclipse.org/v1alpha1
+metadata:
+  name: default
+spec:
+  database:
+    embedded: {}
+  rabbit:
+    managed: {}
+  signOn:
+    keycloak: {}

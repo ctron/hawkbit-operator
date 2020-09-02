@@ -108,9 +108,9 @@ dependencies = [
 
 [[package]]
 name = "async-mutex"
-version = "1.1.5"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20e85981fc34e84cdff3fc2c9219189752633fdc538a06df8b5ac45b68a4f3a9"
+checksum = "065de1ccf10280d0d75c2f3a71a970ee1007c85c51aa3e7deee1df100f1dfadb"
 dependencies = [
  "event-listener",
 ]
@@ -150,9 +150,9 @@ checksum = "c17772156ef2829aadc587461c7753af20b7e8db1529bc66855add962a3b35d3"
 
 [[package]]
 name = "async-trait"
-version = "0.1.38"
+version = "0.1.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e1a4a2f97ce50c9d0282c1468816208588441492b40d813b2e0419c22c05e7f"
+checksum = "687c230d85c0a52504709705fc8a53e4a692b83a2184f03dae73e38e1e93a783"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -423,9 +423,9 @@ checksum = "e1cd41440ae7e4734bbd42302f63eaba892afc93a3912dad84006247f0dedb0e"
 
 [[package]]
 name = "fastrand"
-version = "1.3.4"
+version = "1.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd3bdaaf0a72155260a1c098989b60db1cbb22d6a628e64f16237aa4da93cc7"
+checksum = "5c85295147490b8fcf2ea3d104080a105a8b2c63f9c319e82c02d8e952388919"
 
 [[package]]
 name = "flate2"
@@ -646,6 +646,7 @@ dependencies = [
  "futures",
  "futures-util",
  "k8s-openapi",
+ "keycloak-crd",
  "kube",
  "kube-derive",
  "log",
@@ -824,10 +825,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "kube"
-version = "0.37.0"
+name = "keycloak-crd"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4aba6e152805ed8d84b66b06e593e8250b135e5f465dfa4961d8365351f91646"
+checksum = "4f015a516f888caec898846e517ba8ca86fff96afa842c45827490c855e87a00"
+dependencies = [
+ "k8s-openapi",
+ "kube-derive",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
+name = "kube"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be34ed86dca3021a649b574a1628917d694bb75650a3b50c492e1786589a5ac6"
 dependencies = [
  "Inflector",
  "base64",
@@ -855,9 +869,9 @@ dependencies = [
 
 [[package]]
 name = "kube-derive"
-version = "0.37.0"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9ee2ff16fb3e1fdbfc876812db3576f0dd06675c3fc9ff7e1775aa26ce5e3fa"
+checksum = "fe5b2daae9616b555afa66ec670dc2f292ff61cc119c21dda002f87f3d8a03df"
 dependencies = [
  "Inflector",
  "proc-macro2",
@@ -1140,9 +1154,9 @@ dependencies = [
 
 [[package]]
 name = "operator-framework"
-version = "0.3.4"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea74bfddbb5d961e5d58f0a6b80a7a7a50203c2d8625d200c5eb0c5a0dd69de7"
+checksum = "f5cdf77d899feb3f0f2e7ddc66673e9a9295277565eb8b2002bb840160842d60"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1249,12 +1263,13 @@ checksum = "d36492546b6af1463394d46f0c834346f31548646f6ba10849802c9c9a27ac33"
 
 [[package]]
 name = "polling"
-version = "0.1.5"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e09dffb745feffca5be3dea51c02b7b368c4597ab0219a82acaf9799ab3e0d1"
+checksum = "53c5afb3e8bc82c2780a807374bda0fb8886904d8e9d51e6f4f3743fb1dd27fb"
 dependencies = [
  "cfg-if",
  "libc",
+ "log",
  "wepoll-sys-stjepang",
  "winapi 0.3.9",
 ]

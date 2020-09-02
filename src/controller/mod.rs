@@ -11,11 +11,11 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
-mod rabbit;
+mod keycloak;
 
 use anyhow::Result;
 
-use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit};
+use crate::crd::{DatabaseOptions, DatabaseVariant, Hawkbit, KeycloakConfig};
 use k8s_openapi::api::apps::v1::{
     Deployment, DeploymentStrategy, StatefulSet, StatefulSetUpdateStrategy,
 };
@@ -51,11 +51,17 @@ use operator_framework::utils::UseOrCreate;
 
 use anyhow::anyhow;
 
+use crate::crd::SignOn;
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use kube::api::PropagationPolicy::Background;
 use operator_framework::install::DeleteOptionally;
 use passwords::PasswordGenerator;
 use std::iter::FromIterator;
+
+use crate::controller::keycloak::all_roles;
+use keycloak_crd::{
+    Credential, ExternalAccess, Keycloak, KeycloakClient, KeycloakRealm, KeycloakSpec, KeycloakUser,
+};
 
 pub struct HawkbitController {
     client: Client,
@@ -69,6 +75,11 @@ pub struct HawkbitController {
     role_bindings: Api<RoleBinding>,
     services: Api<Service>,
     routes: Option<Api<Route>>,
+
+    keycloak: Api<Keycloak>,
+    keycloak_realms: Api<KeycloakRealm>,
+    keycloak_clients: Api<KeycloakClient>,
+    keycloak_users: Api<KeycloakUser>,
 
     passwords: PasswordGenerator,
 }
@@ -99,6 +110,11 @@ impl HawkbitController {
             } else {
                 None
             },
+
+            keycloak: Api::namespaced(client.clone(), &namespace),
+            keycloak_clients: Api::namespaced(client.clone(), &namespace),
+            keycloak_realms: Api::namespaced(client.clone(), &namespace),
+            keycloak_users: Api::namespaced(client.clone(), &namespace),
 
             passwords: PasswordGenerator {
                 length: 16,
@@ -158,6 +174,14 @@ impl HawkbitController {
 
         log::info!("Reconcile: {}/{}", namespace, prefix);
 
+        // route first, as we need the URL
+
+        let url = if let Some(routes) = &self.routes {
+            self.create_route(routes, &resource, &namespace).await?
+        } else {
+            None
+        };
+
         // reconcile rabbitmq embedded
 
         match &resource.spec.rabbit.managed {
@@ -165,12 +189,21 @@ impl HawkbitController {
             _ => self.delete_managed_rabbit(&resource).await?,
         }
 
+        // reconcile keycloak
+
+        let issuer_uri = match &resource.spec.sign_on {
+            Some(SignOn::Keycloak { config }) => {
+                self.deploy_keycloak(&resource, &config, &url).await?
+            }
+            _ => None,
+        };
+
         // reconcile hawkbit update server
 
         let mut config_tracker = &mut ConfigTracker::new();
 
         self.create_service_account(&resource, &namespace).await?;
-        self.create_application_config(&resource, &namespace, &mut config_tracker)
+        self.create_application_config(&resource, &namespace, &mut config_tracker, issuer_uri)
             .await?;
         self.create_application_secrets(&resource, &namespace, &mut config_tracker)
             .await?;
@@ -180,11 +213,143 @@ impl HawkbitController {
             .await?;
         self.create_service(&resource, &namespace).await?;
 
-        if let Some(routes) = &self.routes {
-            self.create_route(routes, &resource, &namespace).await?;
-        }
-
         Ok(resource)
+    }
+
+    async fn deploy_keycloak(
+        &self,
+        resource: &Hawkbit,
+        keycloak: &KeycloakConfig,
+        hawkbit_url: &Option<String>,
+    ) -> Result<Option<String>> {
+        let instance_labels = self.selector(&resource, "keycloak", "sso");
+        let realm_labels = self.selector(&resource, "keycloak-realm", "sso");
+        let client_labels = self.selector(&resource, "keycloak-client", "sso");
+
+        let hawkbit_url = keycloak.hawkbit_url.as_ref().or(hawkbit_url.as_ref());
+        let hawkbit_url = match (hawkbit_url, self.routes.is_some()) {
+            (None, true) => Err(anyhow!("Waiting for hawkbit route to be applied")),
+            (None, false) => Err(anyhow!("Missing '.spec.signOn.keycloak.hawkbitUrl'")),
+            (Some(url), _) => Ok(url),
+        }?;
+
+        create_or_update(
+            &self.keycloak,
+            resource.namespace(),
+            resource.name(),
+            |mut instance| {
+                instance.owned_by_controller(resource)?;
+
+                instance.metadata.labels = Some(instance_labels.clone());
+
+                instance.spec.instances = 1;
+                instance.spec.external_access.enabled = true;
+
+                Ok(instance)
+            },
+        )
+        .await?;
+
+        create_or_update(
+            &self.keycloak_realms,
+            resource.namespace(),
+            format!("{}-hawkbit", resource.name()),
+            |mut realm| {
+                realm.owned_by_controller(resource)?;
+
+                realm.metadata.labels = Some(realm_labels.clone());
+
+                realm.spec.instance_selector = LabelSelector {
+                    match_labels: Some(instance_labels.clone()),
+                    ..Default::default()
+                };
+
+                realm.spec.realm.display_name = "hawkBit Realm".into();
+                realm.spec.realm.enabled = true;
+                realm.spec.realm.realm = format!("{}-hawkbit", resource.name());
+
+                Ok(realm)
+            },
+        )
+        .await?;
+
+        create_or_update(
+            &self.keycloak_clients,
+            resource.namespace(),
+            format!("{}-hawkbit", resource.name()),
+            |mut client| {
+                client.owned_by_controller(resource)?;
+
+                client.metadata.labels = Some(client_labels.clone());
+
+                client.spec.realm_selector = LabelSelector {
+                    match_labels: Some(realm_labels.clone()),
+                    ..Default::default()
+                };
+
+                client.spec.client.client_id = format!("{}-hawkbit", resource.name());
+                client.spec.client.enabled = true;
+                client.spec.client.root_url = "".into();
+                client.spec.client.base_url = hawkbit_url.clone();
+                client.spec.client.redirect_uris =
+                    vec![format!("{}/login/oauth2/code/hawkbit", hawkbit_url)];
+                client.spec.client.client_authenticator_type = "client-secret".into();
+                client.spec.client.implicit_flow_enabled = false;
+                client.spec.client.public_client = false;
+                client.spec.client.standard_flow_enabled = true;
+
+                // client roles
+
+                client.spec.client.default_roles = all_roles();
+
+                // done
+
+                Ok(client)
+            },
+        )
+        .await?;
+
+        create_or_update(
+            &self.keycloak_users,
+            resource.namespace(),
+            format!("{}-admin", resource.name()),
+            |mut user| {
+                user.owned_by_controller(resource)?;
+
+                user.spec.realm_selector = LabelSelector {
+                    match_labels: Some(realm_labels),
+                    ..Default::default()
+                };
+
+                if user.spec.user.credentials.is_empty() {
+                    let cred = Credential {
+                        temporary: false,
+                        r#type: "password".to_string(),
+                        value: "test12".to_string(), // FIXME: replace with generated password
+                    };
+                    user.spec.user.credentials.push(cred);
+                }
+
+                user.spec.user.username = "admin".into();
+                user.spec.user.enabled = true;
+                user.spec.user.first_name = "System".into();
+                user.spec.user.last_name = "Admin".into();
+                user.spec.user.client_roles.insert(
+                    format!("{}-hawkbit", resource.name()),
+                    keycloak::all_roles(),
+                );
+
+                Ok(user)
+            },
+        )
+        .await?;
+
+        keycloak::find_issuer_uri(
+            &self.keycloak,
+            format!("{}-hawkbit", resource.name()),
+            &instance_labels,
+        )
+        .await
     }
 
     async fn deploy_managed_rabbit(&self, resource: &Hawkbit) -> Result<()> {
@@ -583,6 +748,7 @@ echo "default_pass = ${RABBITMQ_DEFAULT_PASSWORD}" >> /etc/config-rw/rabbitmq.co
         resource: &Hawkbit,
         namespace: &String,
         tracker: &mut ConfigTracker,
+        issuer_uri: Option<String>,
     ) -> Result<()> {
         create_or_update(
             &self.configmaps,
@@ -590,7 +756,8 @@ echo "default_pass = ${RABBITMQ_DEFAULT_PASSWORD}" >> /etc/config-rw/rabbitmq.co
             resource.name(),
             |mut cm| {
                 cm.owned_by_controller(resource)?;
-                let cfg = r#"server:
+
+                let mut cfg = r#"server:
   useForwardHeaders: true
 hawkbit: null
 spring:
@@ -607,6 +774,27 @@ spring:
           destination: device-registry.device-updated
 "#
                 .to_string();
+
+                match &resource.spec.sign_on {
+                    Some(SignOn::Keycloak { config: _ }) => {
+                        cfg += &format!(
+                            r#"
+  security:
+    oauth2:
+      client:
+        registration:
+          hawkbit:
+            provider: hawkbit-keycloak
+            scope: openid
+        provider:
+          hawkbit-keycloak:
+            issuer-uri: "{issuer_uri}"
+"#,
+                            issuer_uri = issuer_uri.unwrap_or_default()
+                        );
+                    }
+                    None => {}
+                }
 
                 cm.append_string("application.yaml", cfg);
                 cm.track_with(tracker);
@@ -841,17 +1029,26 @@ spring:
                             }
                         }
 
-                        let secret_name = format!("{}-admin", resource.name());
-                        container.add_env_from_secret(
-                            "SPRING_SECURITY_USER_NAME",
-                            &secret_name,
-                            "adminUsername",
-                        )?;
-                        container.add_env_from_secret(
-                            "SPRING_SECURITY_USER_PASSWORD",
-                            &secret_name,
-                            "adminPassword",
-                        )?;
+                        match &resource.spec.sign_on {
+                            Some(SignOn::Keycloak { config:_ }) => {
+                                let secret_name = format!("keycloak-client-secret-{}-hawkbit", resource.name());
+                                container.add_env_from_secret("SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_HAWKBIT_CLIENTID", &secret_name, "CLIENT_ID")?;
+                                container.add_env_from_secret("SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_HAWKBIT_CLIENTSECRET", &secret_name, "CLIENT_SECRET")?;
+                            },
+                            None => {
+                                let secret_name = format!("{}-admin", resource.name());
+                                container.add_env_from_secret(
+                                    "SPRING_SECURITY_USER_NAME",
+                                    &secret_name,
+                                    "adminUsername",
+                                )?;
+                                container.add_env_from_secret(
+                                    "SPRING_SECURITY_USER_PASSWORD",
+                                    &secret_name,
+                                    "adminPassword",
+                                )?;
+                            }
+                        }
 
                         match (
                             &resource.spec.rabbit.external,
@@ -1069,8 +1266,10 @@ spring:
         routes: &Api<Route>,
         resource: &Hawkbit,
         namespace: &String,
-    ) -> Result<()> {
+    ) -> Result<Option<String>> {
         let selector = self.selector(resource, "server", "server");
+
+        let mut url: Option<String> = None;
 
         create_or_update(routes, Some(namespace), resource.name(), |mut route| {
             route.owned_by_controller(resource)?;
@@ -1090,10 +1289,15 @@ spring:
                 ..Default::default()
             });
 
+            let host = route.spec.host.clone();
+            if !host.is_empty() {
+                url = Some(format!("https://{}", host));
+            }
+
             Ok(route)
         })
         .await?;
 
-        Ok(())
+        Ok(url)
     }
 }

@@ -1,0 +1,49 @@
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakUser
+metadata:
+  name: hawkbit-admin-user
+  labels:
+    app: sso
+    keycloak: hawkbit
+    realm: hawkbit
+spec:
+  realmSelector:
+    matchLabels:
+      app: sso
+      keycloak: hawkbit
+      realm: hawkbit
+  user:
+    clientRoles:
+      client-secret:
+        - system_admin
+
+        - create_target
+        - read_target
+        - read_target_security_token
+        - update_target
+        - delete_target
+
+        - create_repository
+        - read_repository
+        - update_repository
+        - delete_repository
+
+        - download_repository_artifact
+        - tenant_configuration
+
+        - create_rollout
+        - read_rollout
+        - update_rollout
+        - delete_rollout
+        - handle_rollout
+        - approve_rollout
+    email: foo@bar.com
+    enabled: true
+    firstName: System
+    lastName: Admin
+    username: admin
+    credentials:
+      - type: password
+        temporary: false
+        value: admin12

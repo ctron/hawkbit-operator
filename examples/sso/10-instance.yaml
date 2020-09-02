@@ -1,0 +1,11 @@
+apiVersion: keycloak.org/v1alpha1
+kind: Keycloak
+metadata:
+  name: hawkbit-keycloak
+  labels:
+    app: sso
+    keycloak: hawkbit
+spec:
+  externalAccess:
+    enabled: true
+  instances: 1
