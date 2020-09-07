@@ -15,102 +15,106 @@ You can also install the operator using [Helm](https://helm.sh/):
 
 On OpenShift, you can also build a local instance using S2I:
 
-    helm install hawkbit-operator ./helm/hawkbit-operator --set s2i.enabled=true
+    helm install hawkbit-operator ./helm/hawkbit-operator --set s2i.enabled=true --set openshift.enabled=true
 
 ## Create a hawkBit instance
 
-* Have an existing database instance, or choose the embedded one
+The following sections describe briefly what is required to create a new instance.
 
-  hawkBit requires a database to run. You can provide an existing database instance, or
-  you can choose from the following options:
+### Database instance
 
-  * Use an embedded database:
+hawkBit requires a database to run. You can provide an existing database instance, or
+you can choose from the following options:
+
+#### Use an embedded database
   
-    This can be achieved by using the following `database` configuration in the `Hawkbit` resource:
+This can be achieved by using the following `database` configuration in the `Hawkbit` resource:
+
+~~~yaml
+spec:
+  database:
+    embedded: {}
+~~~
+
+NOTE: This uses an embedded instance of H2. This is only intended for testing.
+
+#### Create a new PostgreSQL instance:
+    
+NOTE: This currently requires a manually provide hawkBit image.
+    
+~~~
+helm install hawkbit-db bitnami/postgresql --set securityContext.enabled=false --set postgresqlDatabase=hawkbit --set postgresqlUsername=hawkbit --set postgresqlPassword=hawkbit
+~~~
+
+And use the following `database` configuration in the `Hawkbit` resource:
+
+~~~yaml
+spec:
+  database:
+    postgres:
+      database: hawkbit
+      host: hawkbit-db-postgresql
+      username: hawkbit
+      passwordSecret:
+        name: hawkbit-db-postgresql
+        field: postgresql-password
+~~~
+
+#### Create a new MySQL instance:
+
+~~~
+helm install hawkbit-db bitnami/mysql --set master.securityContext.enabled=false --set db.name=hawkbit --set db.user=hawkbit --set db.password=hawkbit --set replication.enabled=false
+~~~
+
+Use the following `database` configuration in the `Hawkbit` resource:
+
+~~~yaml
+spec:
+  database:
+    mysql:
+      database: hawkbit
+      host: hawkbit-db-mysql
+      username: hawkbit
+      passwordSecret:
+        name: hawkbit-db-mysql
+        field: mysql-password
+~~~
+
+### Broker instance
+
+Eclipse hawkBit requires a RabbitMQ broker. You can use an existing instance or let the
+operator manage one for you.
+
+#### Managed by the operator
+
+~~~yaml
+spec:
+rabbit:
+  managed: {}
+~~~
+
+#### Create a new RabbitMQ instance
   
-    ~~~yaml
-    spec:
-      database:
-        embedded: {}
-    ~~~
-    
-    NOTE: This uses an embedded instance of H2. This is only intended for testing.
+~~~
+helm install hawkbit-rabbit bitnami/rabbitmq --set podSecurityContext= --set auth.username=hawkbit --set auth.password=hawkbit
+~~~
 
-  * Create a new PostgreSQL instance:
-    
-    NOTE: This currently requires a manually provide hawkBit image.
-    
-    ~~~
-    helm install hawkbit-db bitnami/postgresql --set securityContext.enabled=false --set postgresqlDatabase=hawkbit --set postgresqlUsername=hawkbit --set postgresqlPassword=hawkbit
-    ~~~
-    
-    And use the following `database` configuration in the `Hawkbit` resource:
-    
-    ~~~yaml
-    spec:
-      database:
-        postgres:
-          database: hawkbit
-          host: hawkbit-db-postgresql
-          username: hawkbit
-          passwordSecret:
-            name: hawkbit-db-postgresql
-            field: postgresql-password
-    ~~~
+Use the following configuration:
 
-  * Create a new MySQL instance:
+~~~yaml
+spec:
+rabbit:
+  external:
+    host: hawkbit-rabbit-rabbitmq
+    username: hawkbit
+    passwordSecret:
+      name: hawkbit-rabbit-rabbitmq
+      field: rabbitmq-password
+~~~
 
-    ~~~
-    helm install hawkbit-db bitnami/mysql --set master.securityContext.enabled=false --set db.name=hawkbit --set db.user=hawkbit --set db.password=hawkbit --set replication.enabled=false
-    ~~~
-    
-    And use the following `database` configuration in the `Hawkbit` resource:
-    
-    ~~~yaml
-    spec:
-      database:
-        mysql:
-          database: hawkbit
-          host: hawkbit-db-mysql
-          username: hawkbit
-          passwordSecret:
-            name: hawkbit-db-mysql
-            field: mysql-password
-    ~~~
+### Sign on solution
 
-* Have an existing broker instance, or choose the managed one
-
-  Eclipse hawkBit requires a RabbitMQ broker. You can use an existing instance or let the
-  operator manage one for you.
-
-    * Let the operator manage an instance:
-    
-      ~~~yaml
-      spec:
-        rabbit:
-          managed: {}
-      ~~~
-    
-    * Or create a new RabbitMQ instance:
-      
-      ~~~
-      helm install hawkbit-rabbit bitnami/rabbitmq --set podSecurityContext= --set auth.username=hawkbit --set auth.password=hawkbit
-      ~~~
-      
-      And use the following configuration:
-      
-      ~~~yaml
-      spec:
-        rabbit:
-          external:
-            host: hawkbit-rabbit-rabbitmq
-            username: hawkbit
-            passwordSecret:
-              name: hawkbit-rabbit-rabbitmq
-              field: rabbitmq-password
-      ~~~
-
-* Choose a sign on solution
+The console requires some kind of authentication/authorization backend:
 
   * Basic username/password
   
@@ -148,18 +152,18 @@ On OpenShift, you can also build a local instance using S2I:
       kubectl describe keycloakuser default-admin
       ~~~
 
-* Create a new hawkBit instance:
+### The hawkBit instance
 
-  Also, see the snippets above or the other examples: [examples/](examples/).
+Also, see the snippets above or the other examples: [examples/](examples/).
 
-  ~~~yaml
-  kind: Hawkbit
-  apiVersion: iot.eclipse.org/v1alpha1
-  metadata:
-    name: default
-  spec:
-    database:
-      embedded: {}
-    rabbit:
-      managed: {}
-  ~~~
+~~~yaml
+kind: Hawkbit
+apiVersion: iot.eclipse.org/v1alpha1
+metadata:
+name: default
+spec:
+database:
+  embedded: {}
+rabbit:
+  managed: {}
+~~~
