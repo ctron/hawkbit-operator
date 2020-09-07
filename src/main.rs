@@ -12,7 +12,7 @@
  */
 
 // required because of kube-runtime
-#![type_length_limit = "14255639"]
+#![type_length_limit = "15255639"]
 
 mod controller;
 mod crd;
