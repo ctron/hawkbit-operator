@@ -1,5 +1,5 @@
-# Eclipse Hawkbit operator
+# Eclipse hawkBit operator
 
-The Hawkbit Operator creates and maintains an Eclipse Hawkbit™ instance.
+The hawkBit operator creates and maintains an Eclipse hawkBit™ instance.
 
-[Eclipse Hawkbit](https://eclipse.org/hawkbit) is a firmware update platform.
+[Eclipse hawkBit](https://eclipse.org/hawkbit) is a firmware update platform.
