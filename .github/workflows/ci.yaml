@@ -59,7 +59,7 @@ jobs:
       - name: Build container
         run: |
           docker build . --file .github/Dockerfile \
-            --tag $IMAGE_NAME:ci
+            --tag $IMAGE_NAME
 
       - name: Login to github container repository
         run: echo "${{ secrets.CR_PAT }}" | docker login https://ghcr.io -u ${{ github.actor }} --password-stdin
