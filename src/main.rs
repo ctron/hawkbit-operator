@@ -60,6 +60,19 @@ impl fmt::Display for StringError {
     }
 }
 
+fn has_flag<S>(name: S, default_value: bool) -> anyhow::Result<bool>
+where
+    S: AsRef<str>,
+{
+    Ok(std::env::var_os(name.as_ref())
+        .map(|s| s.into_string())
+        .transpose()
+        .map_err(|err| StringError {
+            message: err.to_string_lossy().into(),
+        })?
+        .map_or(default_value, |s| s == "true"))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -67,21 +80,17 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     let namespace = std::env::var("NAMESPACE").unwrap_or("default".into());
 
-    let has_openshift = std::env::var_os("HAS_OPENSHIFT")
-        .map(|s| s.into_string())
-        .transpose()
-        .map_err(|err| StringError {
-            message: err.to_string_lossy().into(),
-        })?
-        .map_or(false, |s| s == "true");
+    let has_openshift = has_flag("HAS_OPENSHIFT", false)?;
+    let has_keycloak = has_flag("HAS_KEYCLOAK", false)?;
 
-    let controller = HawkbitController::new(&namespace, client.clone(), has_openshift);
+    let controller =
+        HawkbitController::new(&namespace, client.clone(), has_openshift, has_keycloak);
     let context = Context::new(());
 
     log::info!("Starting operator...");
 
     let hawkbits: Api<Hawkbit> = Api::namespaced(client.clone(), &namespace);
-    let c = Controller::new(hawkbits, ListParams::default())
+    let mut c = Controller::new(hawkbits, ListParams::default())
         .owns(
             Api::<ConfigMap>::namespaced(client.clone(), &namespace),
             Default::default(),
@@ -121,34 +130,34 @@ async fn main() -> anyhow::Result<()> {
 
     // watch keycloak
 
-    let c = c
-        .owns(
-            Api::<Keycloak>::namespaced(client.clone(), &namespace),
-            Default::default(),
-        )
-        .owns(
-            Api::<KeycloakRealm>::namespaced(client.clone(), &namespace),
-            Default::default(),
-        )
-        .owns(
-            Api::<KeycloakClient>::namespaced(client.clone(), &namespace),
-            Default::default(),
-        )
-        .owns(
-            Api::<KeycloakUser>::namespaced(client.clone(), &namespace),
-            Default::default(),
-        );
+    if has_keycloak {
+        c = c
+            .owns(
+                Api::<Keycloak>::namespaced(client.clone(), &namespace),
+                Default::default(),
+            )
+            .owns(
+                Api::<KeycloakRealm>::namespaced(client.clone(), &namespace),
+                Default::default(),
+            )
+            .owns(
+                Api::<KeycloakClient>::namespaced(client.clone(), &namespace),
+                Default::default(),
+            )
+            .owns(
+                Api::<KeycloakUser>::namespaced(client.clone(), &namespace),
+                Default::default(),
+            )
+    }
 
     // watch openshift resources as well
 
-    let c = if has_openshift {
-        c.owns(
+    if has_openshift {
+        c = c.owns(
             Api::<Route>::namespaced(client.clone(), &namespace),
             Default::default(),
         )
-    } else {
-        c
-    };
+    }
 
     // FIXME: need to watch references secrets as well
 
@@ -159,12 +168,12 @@ async fn main() -> anyhow::Result<()> {
             controller
                 .reconcile(resource)
                 .map_ok(|_| ReconcilerAction {
-                    requeue_after: Some(Duration::from_secs(600)),
+                    requeue_after: None,
                 })
                 .map_err(|err| ReconcileError::ControllerError { source: err })
         },
         |_, _| ReconcilerAction {
-            requeue_after: Some(Duration::from_secs(600)),
+            requeue_after: Some(Duration::from_secs(60)),
         },
         context,
     )

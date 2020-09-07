@@ -119,6 +119,8 @@ spec:
                         value: info
                       - name: HAS_OPENSHIFT
                         value: "false"
+                      - name: HAS_KEYCLOAK
+                        value: "true"
                     image: docker.io/ctron/hawkbit-operator:0.1.4
                     imagePullPolicy: Always
                     name: hawkbit-operator

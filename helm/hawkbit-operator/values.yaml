@@ -8,6 +8,9 @@ image:
 openshift:
   enabled: false
 
+keycloakOperator:
+  enabled: false
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""

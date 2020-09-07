@@ -60,8 +60,6 @@ use std::iter::FromIterator;
 
 use crate::controller::keycloak::all_roles;
 use keycloak_crd::{Credential, Keycloak, KeycloakClient, KeycloakRealm, KeycloakUser};
-use kube_runtime::controller::ReconcilerAction;
-use tokio::time::Duration;
 
 pub struct HawkbitController {
     client: Client,
@@ -78,10 +76,10 @@ pub struct HawkbitController {
 
     routes: Option<Api<Route>>,
 
-    keycloak: Api<Keycloak>,
-    keycloak_realms: Api<KeycloakRealm>,
-    keycloak_clients: Api<KeycloakClient>,
-    keycloak_users: Api<KeycloakUser>,
+    keycloak: Option<Api<Keycloak>>,
+    keycloak_realms: Option<Api<KeycloakRealm>>,
+    keycloak_clients: Option<Api<KeycloakClient>>,
+    keycloak_users: Option<Api<KeycloakUser>>,
 
     passwords: PasswordGenerator,
 }
@@ -94,8 +92,19 @@ pub const KUBERNETES_LABEL_INSTANCE: &str = "app.kubernetes.io/instance";
 pub const KUBERNETES_LABEL_COMPONENT: &str = "app.kubernetes.io/component";
 pub const OPENSHIFT_ANNOTATION_CONNECT: &str = "app.openshift.io/connects-to";
 
+fn optional_api<K>(flag: bool, client: &Client, namespace: &str) -> Option<Api<K>>
+where
+    K: k8s_openapi::Resource,
+{
+    if flag {
+        Some(Api::namespaced(client.clone(), namespace))
+    } else {
+        None
+    }
+}
+
 impl HawkbitController {
-    pub fn new(namespace: &str, client: Client, has_openshift: bool) -> Self {
+    pub fn new(namespace: &str, client: Client, has_openshift: bool, has_keycloak: bool) -> Self {
         HawkbitController {
             client: client.clone(),
             deployments: Api::namespaced(client.clone(), &namespace),
@@ -107,17 +116,17 @@ impl HawkbitController {
             services: Api::namespaced(client.clone(), &namespace),
             configmaps: Api::namespaced(client.clone(), &namespace),
             pvcs: Api::namespaced(client.clone(), &namespace),
-            routes: if has_openshift {
-                Some(Api::namespaced(client.clone(), &namespace))
-            } else {
-                None
-            },
 
-            keycloak: Api::namespaced(client.clone(), &namespace),
-            keycloak_clients: Api::namespaced(client.clone(), &namespace),
-            keycloak_realms: Api::namespaced(client.clone(), &namespace),
-            keycloak_users: Api::namespaced(client.clone(), &namespace),
+            // openshift
+            routes: optional_api(has_openshift, &client, namespace),
 
+            // keycloak operator
+            keycloak: optional_api(has_keycloak, &client, namespace),
+            keycloak_clients: optional_api(has_keycloak, &client, namespace),
+            keycloak_realms: optional_api(has_keycloak, &client, namespace),
+            keycloak_users: optional_api(has_keycloak, &client, namespace),
+
+            // password generator
             passwords: PasswordGenerator {
                 length: 16,
                 ..Default::default()
@@ -193,10 +202,34 @@ impl HawkbitController {
 
         // reconcile keycloak
 
-        let issuer_uri = match &resource.spec.sign_on {
-            Some(SignOn::Keycloak { config }) => {
-                self.deploy_keycloak(&resource, &config, &url).await?
+        let issuer_uri = match (
+            &resource.spec.sign_on,
+            &self.keycloak,
+            &self.keycloak_realms,
+            &self.keycloak_clients,
+            &self.keycloak_users,
+        ) {
+            (
+                Some(SignOn::Keycloak { config }),
+                Some(keycloaks),
+                Some(keycloak_realms),
+                Some(keycloak_clients),
+                Some(keycloak_users),
+            ) => {
+                self.deploy_keycloak(
+                    &resource,
+                    &config,
+                    &url,
+                    keycloaks,
+                    keycloak_realms,
+                    keycloak_clients,
+                    keycloak_users,
+                )
+                .await?
             }
+            (Some(SignOn::Keycloak { .. }), ..) => Err(anyhow!(
+                "Requested Keycloak integration, but 'HAS_KEYCLOAK' is set to 'false'"
+            ))?,
             _ => None,
         };
 
@@ -223,6 +256,10 @@ impl HawkbitController {
         resource: &Hawkbit,
         keycloak: &KeycloakConfig,
         hawkbit_url: &Option<String>,
+        keycloaks: &Api<Keycloak>,
+        keycloak_realms: &Api<KeycloakRealm>,
+        keycloak_clients: &Api<KeycloakClient>,
+        keycloak_users: &Api<KeycloakUser>,
     ) -> Result<Option<String>> {
         let instance_labels = self.selector(&resource, "keycloak", "sso");
         let realm_labels = self.selector(&resource, "keycloak-realm", "sso");
@@ -236,7 +273,7 @@ impl HawkbitController {
         }?;
 
         create_or_update(
-            &self.keycloak,
+            keycloaks,
             resource.namespace(),
             resource.name(),
             |mut instance| {
@@ -253,7 +290,7 @@ impl HawkbitController {
         .await?;
 
         create_or_update(
-            &self.keycloak_realms,
+            keycloak_realms,
             resource.namespace(),
             format!("{}-hawkbit", resource.name()),
             |mut realm| {
@@ -276,7 +313,7 @@ impl HawkbitController {
         .await?;
 
         create_or_update(
-            &self.keycloak_clients,
+            keycloak_clients,
             resource.namespace(),
             format!("{}-hawkbit", resource.name()),
             |mut client| {
@@ -312,7 +349,7 @@ impl HawkbitController {
         .await?;
 
         create_or_update(
-            &self.keycloak_users,
+            keycloak_users,
             resource.namespace(),
             format!("{}-admin", resource.name()),
             |mut user| {
@@ -350,7 +387,7 @@ impl HawkbitController {
         .await?;
 
         keycloak::find_issuer_uri(
-            &self.keycloak,
+            keycloaks,
             format!("{}-hawkbit", resource.name()),
             &instance_labels,
         )

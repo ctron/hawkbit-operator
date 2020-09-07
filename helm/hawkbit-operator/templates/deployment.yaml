@@ -54,6 +54,8 @@ spec:
                   fieldPath: metadata.namespace
             - name: HAS_OPENSHIFT
               value: {{ .Values.openshift.enabled | quote }}
+            - name: HAS_KEYCLOAK
+              value: {{ .Values.keycloakOperator.enabled | quote }}
             - name: RUST_LOG
               value: info
       {{- with .Values.nodeSelector }}
