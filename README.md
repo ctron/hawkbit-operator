@@ -13,7 +13,7 @@ You can also install the operator using [Helm](https://helm.sh/):
 
     helm install hawkbit-operator ./helm/hawkbit-operator
 
-On OpenShift you can also build a local instance using S2I:
+On OpenShift, you can also build a local instance using S2I:
 
     helm install hawkbit-operator ./helm/hawkbit-operator --set s2i.enabled=true
 
