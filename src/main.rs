@@ -11,34 +11,41 @@
  * SPDX-License-Identifier: EPL-2.0
  */
 
+// required because of kube-runtime
+#![type_length_limit = "14255639"]
+
 mod controller;
 mod crd;
 
 use kube::api::ListParams;
-use kube::runtime::{Informer, Reflector};
 use kube::{Api, Client};
+use kube_runtime::Controller;
 
 use crd::Hawkbit;
 
 use crate::controller::HawkbitController;
-use async_std::sync::{Arc, Mutex};
+use futures::StreamExt;
+use futures::TryFutureExt;
 
+use snafu::Snafu;
 use std::fmt;
 
-async fn run_once(controller: &Arc<Mutex<HawkbitController>>, crds: Vec<Hawkbit>) {
-    for crd in crds {
-        let r = controller.lock().await.reconcile(&crd).await;
+use keycloak_crd::{Keycloak, KeycloakClient, KeycloakRealm, KeycloakUser};
 
-        match r {
-            Err(e) => {
-                log::warn!("Failed to reconcile: {}", e);
-            }
-            _ => {}
-        }
-    }
+#[derive(Debug, Snafu)]
+enum ReconcileError {
+    ControllerError { source: anyhow::Error },
 }
 
+use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
+use k8s_openapi::api::core::v1::{
+    ConfigMap, PersistentVolumeClaim, Secret, Service, ServiceAccount,
+};
+use k8s_openapi::api::rbac::v1::{Role, RoleBinding};
+use kube_runtime::controller::{Context, ReconcilerAction};
+use openshift_openapi::api::route::v1::Route;
 use std::error::Error;
+use tokio::time::Duration;
 
 #[derive(Debug, Clone)]
 struct StringError {
@@ -60,14 +67,6 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     let namespace = std::env::var("NAMESPACE").unwrap_or("default".into());
 
-    let dittos: Api<Hawkbit> = Api::namespaced(client.clone(), &namespace);
-    let lp = ListParams::default().timeout(20); // low timeout in this example
-    let rf = Reflector::new(dittos).params(lp);
-
-    let _: Informer<Hawkbit> = Informer::new(Api::namespaced(client.clone(), &namespace));
-
-    let rf2 = rf.clone(); // read from a clone in a task
-
     let has_openshift = std::env::var_os("HAS_OPENSHIFT")
         .map(|s| s.into_string())
         .transpose()
@@ -76,24 +75,107 @@ async fn main() -> anyhow::Result<()> {
         })?
         .map_or(false, |s| s == "true");
 
-    let controller = Arc::new(Mutex::new(HawkbitController::new(
-        &namespace,
-        client,
-        has_openshift,
-    )));
-    let loop_controller = controller.clone();
+    let controller = HawkbitController::new(&namespace, client.clone(), has_openshift);
+    let context = Context::new(());
 
     log::info!("Starting operator...");
 
-    tokio::spawn(async move {
-        tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-        loop {
-            run_once(&loop_controller, rf2.state().await.unwrap()).await;
-            tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
-        }
-    });
+    let hawkbits: Api<Hawkbit> = Api::namespaced(client.clone(), &namespace);
+    let c = Controller::new(hawkbits, ListParams::default())
+        .owns(
+            Api::<ConfigMap>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<Deployment>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<PersistentVolumeClaim>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<Role>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<RoleBinding>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<Secret>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<Service>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<ServiceAccount>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<StatefulSet>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        );
 
-    rf.run().await?;
+    // watch keycloak
+
+    let c = c
+        .owns(
+            Api::<Keycloak>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<KeycloakRealm>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<KeycloakClient>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+        .owns(
+            Api::<KeycloakUser>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        );
+
+    // watch openshift resources as well
+
+    let c = if has_openshift {
+        c.owns(
+            Api::<Route>::namespaced(client.clone(), &namespace),
+            Default::default(),
+        )
+    } else {
+        c
+    };
+
+    // FIXME: need to watch references secrets as well
+
+    // now run it
+
+    c.run(
+        |resource, _| {
+            controller
+                .reconcile(resource)
+                .map_ok(|_| ReconcilerAction {
+                    requeue_after: Some(Duration::from_secs(600)),
+                })
+                .map_err(|err| ReconcileError::ControllerError { source: err })
+        },
+        |_, _| ReconcilerAction {
+            requeue_after: Some(Duration::from_secs(600)),
+        },
+        context,
+    )
+    // the next two lines are required to poll from the stream
+    .for_each(|res| async move {
+        match res {
+            Ok(o) => log::debug!("reconciled {:?}", o),
+            Err(e) => log::info!("reconcile failed: {:?}", e),
+        }
+    })
+    .await;
 
     Ok(())
 }

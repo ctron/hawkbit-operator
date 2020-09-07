@@ -59,21 +59,23 @@ use passwords::PasswordGenerator;
 use std::iter::FromIterator;
 
 use crate::controller::keycloak::all_roles;
-use keycloak_crd::{
-    Credential, ExternalAccess, Keycloak, KeycloakClient, KeycloakRealm, KeycloakSpec, KeycloakUser,
-};
+use keycloak_crd::{Credential, Keycloak, KeycloakClient, KeycloakRealm, KeycloakUser};
+use kube_runtime::controller::ReconcilerAction;
+use tokio::time::Duration;
 
 pub struct HawkbitController {
     client: Client,
-    deployments: Api<Deployment>,
-    statefulsets: Api<StatefulSet>,
-    secrets: Api<Secret>,
+
     configmaps: Api<ConfigMap>,
-    service_accounts: Api<ServiceAccount>,
+    deployments: Api<Deployment>,
     pvcs: Api<PersistentVolumeClaim>,
     roles: Api<Role>,
     role_bindings: Api<RoleBinding>,
+    secrets: Api<Secret>,
     services: Api<Service>,
+    service_accounts: Api<ServiceAccount>,
+    statefulsets: Api<StatefulSet>,
+
     routes: Option<Api<Route>>,
 
     keycloak: Api<Keycloak>,
@@ -130,7 +132,7 @@ impl HawkbitController {
         format!("{}/{}:{}", HAWKBIT_REGISTRY, base, HAWKBIT_VERSION)
     }
 
-    pub async fn reconcile(&self, original: &Hawkbit) -> Result<()> {
+    pub async fn reconcile(&self, original: Hawkbit) -> Result<()> {
         let resource = original.clone();
         let namespace = resource.namespace().expect("Missing namespace");
 

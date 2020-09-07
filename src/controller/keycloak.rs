@@ -14,7 +14,6 @@
 use anyhow::Result;
 use kube::Api;
 
-use crate::crd::KeycloakConfig;
 use keycloak_crd::Keycloak;
 use kube::api::ListParams;
 use std::collections::BTreeMap;
