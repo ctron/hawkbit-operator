@@ -2,6 +2,9 @@ name: ci
 
 on: [push, pull_request]
 
+env:
+  IMAGE_NAME: hawkbit-operator
+
 jobs:
 
   lint-chart:
@@ -56,13 +59,25 @@ jobs:
       - name: Build container
         run: |
           docker build . --file .github/Dockerfile \
-            --tag docker.pkg.github.com/${{ github.repository }}/hawkbit-operator:ci
+            --tag $IMAGE_NAME:ci
 
       - name: Login to github container repository
-        run: docker login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} docker.pkg.github.com
+        run: echo "${{ secrets.CR_PAT }}" | docker login https://ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Push latest to github container repository
-        run: docker push docker.pkg.github.com/${{ github.repository }}/hawkbit-operator:ci
+        run: |
+          IMAGE_ID=ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME
+          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+          [ "$VERSION" == "$default-branch" ] && VERSION=latest
+
+          echo IMAGE_ID=$IMAGE_ID
+          echo VERSION=ci
+
+          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
+          docker push $IMAGE_ID:$VERSION
 
   install-chart:
     name: install-chart
@@ -95,24 +110,6 @@ jobs:
 
       - name: Pre-create namespace
         run: kubectl create namespace hawkbit-operator-ci
-
-#      - name: Create image pull secret
-#        run: |
-#          kubectl create secret docker-registry ci \
-#            -n hawkbit-operator-ci \
-#            --docker-server=docker.pkg.github.com \
-#            --docker-username=${{ github.repository_owner }} \
-#            --docker-password=${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to github container repository
-        run: docker login -u ${{ github.repository_owner }} -p ${{ secrets.GITHUB_TOKEN }} docker.pkg.github.com
-
-      - name: Create image pull secret
-        run: |
-          kubectl create secret generic ci \
-              -n hawkbit-operator-ci \
-              --from-file=.dockerconfigjson=/home/runner/.docker/config.json \
-              --type=kubernetes.io/dockerconfigjson
 
       - name: Run chart-testing (install)
         uses: helm/chart-testing-action@v1.0.0
