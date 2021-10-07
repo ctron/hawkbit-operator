@@ -1,6 +1,12 @@
 name: ci
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
 
 env:
   IMAGE_NAME: hawkbit-operator
@@ -75,9 +81,11 @@ jobs:
             --tag $IMAGE_NAME
 
       - name: Login to github container repository
-        run: echo "${{ secrets.CR_PAT }}" | docker login https://ghcr.io -u ${{ github.actor }} --password-stdin
+        if: ${{github.head_ref == ''}} # only for non-PRs
+        run: echo "${{ secrets.GHCR_PAT }}" | docker login https://ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Push latest to github container repository
+        if: ${{github.head_ref == ''}} # only for non-PRs
         run: |
           IMAGE_ID=ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME
           IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
