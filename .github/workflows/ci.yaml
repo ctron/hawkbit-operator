@@ -63,7 +63,7 @@ jobs:
 
       - name: Login to github container repository
         if: ${{github.head_ref == ''}} # only for non-PRs
-        run: echo "${{ github.token }}" | docker login https://ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.GHCR_PAT }}" | docker login https://ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build
         uses: actions-rs/cargo@v1
@@ -81,8 +81,7 @@ jobs:
 
       - name: Build container
         run: |
-          docker build . --file .github/Dockerfile \
-            --tag $IMAGE_NAME
+          docker build . --file .github/Dockerfile --tag $IMAGE_NAME
 
       - name: Push latest to github container repository
         if: ${{github.head_ref == ''}} # only for non-PRs
