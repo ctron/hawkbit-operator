@@ -13,7 +13,7 @@ env:
 
 jobs:
 
-  lint-test:
+  lint-chart:
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout
@@ -102,7 +102,7 @@ jobs:
 
   install-chart:
     name: install-chart
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     needs:
       - lint-chart
       - build
